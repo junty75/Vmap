@@ -10,7 +10,7 @@
   //  v월드 카카오맵 호환 레이어 (샘플 기반)
   //  WMTS: {z}/{y}/{x} 순서
   // ════════════════════════════════════════
-  const VWORLD_KEY = '58F6D8A1-7DF7-3DF7-95C7-75A441DC576C';
+  const VWORLD_KEY = '55FD7275-A6F5-3B69-9966-CD4BFA2FD35F';
 
   function _toOl(lat,lng){ return ol.proj.transform([lng,lat],'EPSG:4326','EPSG:3857'); }
   function _toLl(c){ const r=ol.proj.transform(c,'EPSG:3857','EPSG:4326'); return {lat:r[1],lng:r[0]}; }
