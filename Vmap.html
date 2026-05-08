@@ -80,6 +80,7 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
   padding:3px 7px;font-size:12px;white-space:nowrap;pointer-events:none;
 }
 .draw-mode,.draw-mode *{cursor:crosshair !important;}
+#cadastralBtn.active{background:#e8f5e9;border-color:#43a047;color:#2e7d32;font-weight:bold;}
 </style>
 </head>
 <body>
@@ -128,6 +129,7 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
     <option value="PHOTO">항공사진</option>
     <option value="PHOTO_HYBRID" selected>하이브리드</option>
   </select>
+  <button id="cadastralBtn" onclick="toggleCadastral()" title="지적도 켜기/끄기">🗺️ 지적도</button>
 </div>
 
 <div id="vmap"></div>
@@ -282,6 +284,66 @@ function chgMapType(t) {
 }
 
 /* ════════════════════════════════════
+   지적도 레이어 토글
+   VWorld 자체 API - vw.Layers + vw.source.TileWMS
+════════════════════════════════════ */
+let cadastralLayers = null;
+
+function toggleCadastral() {
+  const btn = document.getElementById('cadastralBtn');
+  if (cadastralLayers) {
+    // 끄기
+    vmap.removeLayer(cadastralLayers);
+    cadastralLayers = null;
+    btn.classList.remove('active');
+    btn.textContent = '🗺️ 지적도';
+  } else {
+    // 켜기 - VWorld vw.Layers API 사용
+    try {
+      const wmsSource = new vw.source.TileWMS();
+      wmsSource.setUrl(`https://api.vworld.kr/req/wms?Key=${VWORLD_KEY}&`);
+      wmsSource.setParams('tilesize=256');
+      wmsSource.setLayers('lt_c_landinfobasemap');
+      wmsSource.setStyles('lt_c_landinfobasemap');
+      wmsSource.setFormat('image/png');
+
+      const wmsTile = new vw.layer.Tile(wmsSource);
+      const wmsLayers = new vw.Layers();
+      wmsLayers.add(wmsTile);
+
+      // vmap에 레이어 추가
+      vmap.addLayer(wmsLayers);
+      cadastralLayers = wmsLayers;
+
+      btn.classList.add('active');
+      btn.textContent = '🗺️ 지적도 ON';
+    } catch(e) {
+      console.error('지적도 레이어 오류:', e);
+      // 폴백: ol.layer.Tile XYZ 방식
+      cadastralLayers = new ol.layer.Tile({
+        source: new ol.source.TileWMS({
+          url: `https://api.vworld.kr/req/wms?KEY=${VWORLD_KEY}&`,
+          params: {
+            LAYERS: 'lt_c_landinfobasemap',
+            STYLES: 'lt_c_landinfobasemap',
+            FORMAT: 'image/png',
+            TRANSPARENT: 'TRUE',
+            VERSION: '1.3.0'
+          },
+          crossOrigin: 'anonymous',
+          serverType: 'geoserver'
+        }),
+        opacity: 0.8,
+        zIndex: 9999
+      });
+      vmap.addLayer(cadastralLayers);
+      btn.classList.add('active');
+      btn.textContent = '🗺️ 지적도 ON';
+    }
+  }
+}
+
+/* ════════════════════════════════════
    레이어 추가/삭제
    VWorld 공식 API: vmap.addLayer()
    레이어에 zIndex:100 설정 → 하이브리드 라벨(zIndex=10) 위에 표시됨
@@ -341,12 +403,11 @@ async function reverseGeocode(lng, lat, cb) {
         parcel = res[0]?.text || '';
         road   = res[1]?.text || '';
       }
-      // 도로명 주소에서 광역시도명(첫 단어) 및 괄호(동이름) 제거
-      // 예: "전북특별자치도 장수군 어떤로 45 (노곡동)" → "장수군 어떤로 45"
+      // 도로명 주소에서 광역시도명(첫 단어) 제거
+      // 예: "전북특별자치도 장수군 ..." → "장수군 ..."
       if (road) {
-        road = road.replace(/\s*\([^)]*\)/g, '').trim(); // (동이름) 제거
         const parts = road.split(' ');
-        if (parts.length > 1) road = parts.slice(1).join(' '); // 광역시도 제거
+        if (parts.length > 1) road = parts.slice(1).join(' ');
       }
       const result = (parcel && road) ? `${parcel} / ${road}` :
                      (parcel || road || '주소 없음');
