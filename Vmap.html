@@ -341,11 +341,12 @@ async function reverseGeocode(lng, lat, cb) {
         parcel = res[0]?.text || '';
         road   = res[1]?.text || '';
       }
-      // 도로명 주소에서 광역시도명(첫 단어) 제거
-      // 예: "전북특별자치도 장수군 ..." → "장수군 ..."
+      // 도로명 주소에서 광역시도명(첫 단어) 및 괄호(동이름) 제거
+      // 예: "전북특별자치도 장수군 어떤로 45 (노곡동)" → "장수군 어떤로 45"
       if (road) {
+        road = road.replace(/\s*\([^)]*\)/g, '').trim(); // (동이름) 제거
         const parts = road.split(' ');
-        if (parts.length > 1) road = parts.slice(1).join(' ');
+        if (parts.length > 1) road = parts.slice(1).join(' '); // 광역시도 제거
       }
       const result = (parcel && road) ? `${parcel} / ${road}` :
                      (parcel || road || '주소 없음');
