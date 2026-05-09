@@ -414,8 +414,7 @@ function initMap(lat, lng) {
       endMoveMode();
       return;
     }
-    // 선 그리기 중 터치 탭 → pointerup에서 직접 점 추가 + preventBack
-    // OL3 click 이벤트는 터치 후 지연 발생하므로 suppressNextClick으로 중복 방지
+    // 선 그리기 중 터치 탭 → pointerup에서 직접 점 추가
     if (drawing && e.pointerType === 'touch') {
       const rect = vp.getBoundingClientRect();
       const pixel = [
@@ -427,8 +426,10 @@ function initMap(lat, lng) {
         drawCoords.push(coord);
         refreshDraw();
         if (drawCoords.length >= 1) updateDistDisplay();
-        preventBack(); // 즉시 스택 push → 뒤로가기로 바로 삭제 가능
-        suppressNextClick = true; // 이후 발생할 click 이벤트 무시
+        // 점 추가 시 스택 2개 push → 뒤로가기 1회당 점 1개 삭제 보장
+        preventBack();
+        preventBack();
+        suppressNextClick = true;
       }
     }
   });
@@ -470,7 +471,9 @@ window.onload = () => {
       refreshDraw();
       if (drawCoords.length > 0) updateDistDisplay();
       else clearAllGuide();
-      window.history.pushState({ page: 'map' }, null, '');
+      // 다음 뒤로가기를 위해 스택 2개 유지
+      preventBack();
+      preventBack();
     } else {
       if (confirm('앱을 종료하시겠습니까?')) {
         // 종료
