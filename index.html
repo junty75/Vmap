@@ -626,13 +626,17 @@ document.getElementById('markerEditNameInput').addEventListener('keydown', e => 
 ════════════════════════════════ */
 document.getElementById('markerBtn').onclick = () => {
   if (markerPlacingMode) {
+    // 두 번째 클릭 → 지도 중심 좌표로 마커 모달 열기
     markerPlacingMode = false;
     document.getElementById('markerBtn').classList.remove('active');
     document.getElementById('crosshair').classList.remove('show');
-  } else {
-    // 지도 중심 좌표로 바로 마커 모달 열기
     pendingMarkerCoord = vmap.getView().getCenter();
     openMarkerModal();
+  } else {
+    // 첫 번째 클릭 → 조준원 모드 시작
+    markerPlacingMode = true;
+    document.getElementById('markerBtn').classList.add('active');
+    document.getElementById('crosshair').classList.add('show');
   }
 };
 
