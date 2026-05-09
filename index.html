@@ -441,14 +441,20 @@ function endMoveMode() {
 }
 
 window.onload = () => {
-  // 뒤로가기 방지
+  // 뒤로가기 스택 2개 유지 → 연속 뒤로가기 보장
+  window.history.pushState({ page: 'map' }, '', '');
   window.history.pushState({ page: 'map' }, '', '');
   window.onpopstate = () => {
     if (drawing && drawCoords.length > 0) {
       drawCoords.pop(); refreshDraw();
       if (!drawCoords.length) clearGuide();
+      else updateDistDisplay(); // 거리표시 갱신
     }
-    setTimeout(() => window.history.pushState({ page: 'map' }, '', ''), 0);
+    // 스택 항상 2개 유지
+    setTimeout(() => {
+      window.history.pushState({ page: 'map' }, '', '');
+      window.history.pushState({ page: 'map' }, '', '');
+    }, 0);
   };
 
   // iOS 배너
@@ -653,6 +659,14 @@ function startDraw() {
   document.getElementById('vmap').classList.add('draw-mode');
   document.getElementById('drawBtn').classList.add('active');
   document.getElementById('drawBtn').title = '선 그리기 종료';
+  // 거리표시 초기화
+  if (!distEl) { distEl = document.createElement('div'); distEl.className = 'dist-tip'; }
+  distEl.textContent = '0m';
+  if (!distOv) {
+    distOv = new ol.Overlay({ element: distEl, offset: [8, -18], positioning: 'bottom-left' });
+    vmap.addOverlay(distOv);
+  }
+  distOv.setPosition(vmap.getView().getCenter());
 }
 
 function endDraw() {
@@ -675,6 +689,22 @@ function refreshDraw() {
   const f = new ol.Feature(new ol.geom.LineString(drawCoords));
   f.setStyle(lineSt('#FF0000', 3)); src.addFeature(f);
   drawLayer._coords = drawCoords.slice();
+  updateDistDisplay();
+}
+
+// 현재 drawCoords 기준 거리 표시 갱신 (마우스 없이도 호출 가능)
+function updateDistDisplay() {
+  if (!drawCoords.length) return;
+  const fmt = d => d < 1000 ? `${d.toFixed(1)}m` : `${(d/1000).toFixed(2)}km`;
+  let dist = 0;
+  for (let i = 1; i < drawCoords.length; i++) dist += haversine(drawCoords[i-1], drawCoords[i]);
+  if (!distEl) { distEl = document.createElement('div'); distEl.className = 'dist-tip'; }
+  distEl.textContent = `총거리 ${fmt(dist)}`;
+  if (!distOv) {
+    distOv = new ol.Overlay({ element: distEl, offset: [8, -18], positioning: 'bottom-left' });
+    vmap.addOverlay(distOv);
+  }
+  distOv.setPosition(drawCoords[drawCoords.length - 1]);
 }
 
 document.getElementById('drawBtn').onclick = toggleDraw;
