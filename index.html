@@ -20,14 +20,6 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 #vmap{width:100%;height:100%;position:absolute;top:0;left:0;}
 
 /* ── 상단 주소표시 ── */
-#address-display{
-  position:absolute;top:10px;left:10px;z-index:2000;
-  background:rgba(0,0,0,.6);color:#fff;font-size:12px;
-  padding:6px 10px;border-radius:5px;cursor:pointer;
-  white-space:nowrap;max-width:calc(100vw - 280px);overflow:hidden;
-  box-shadow:0 2px 6px rgba(0,0,0,.3);
-}
-#address-display:hover{background:rgba(0,0,0,.82);}
 
 /* ── 플로팅 버튼 ── */
 .btn{
@@ -141,8 +133,6 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 </head>
 <body>
 
-<!-- 주소 표시 -->
-<div id="address-display" onclick="copyAndMark()">주소 없음</div>
 
 <!-- 지도 -->
 <div id="vmap"></div>
@@ -440,21 +430,31 @@ function endMoveMode() {
   autoSaveToDB();
 }
 
-window.onload = () => {
-  // 스택 2개로 시작 (연속 뒤로가기 버퍼)
-  window.history.pushState({ page: 1 }, null, '');
-  window.history.pushState({ page: 2 }, null, '');
+let historyState = 0;
+function preventBack() {
+  historyState++;
+  window.history.pushState({ id: historyState }, null, '');
+}
 
-  window.onpopstate = (e) => {
+window.onload = () => {
+  // 처음 히스토리 1개 push (원본과 동일)
+  window.history.pushState({ page: 'map' }, null, '');
+
+  window.onpopstate = () => {
     if (drawing && drawCoords.length > 0) {
-      // 점 삭제
+      // 점 삭제 후 즉시 1개 push → 연속 뒤로가기 가능
       drawCoords.pop();
       refreshDraw();
       if (drawCoords.length > 0) updateDistDisplay();
       else clearGuide();
+      window.history.pushState({ page: 'map' }, null, '');
+    } else {
+      if (confirm('앱을 종료하시겠습니까?')) {
+        // 종료
+      } else {
+        window.history.pushState({ page: 'map' }, null, '');
+      }
     }
-    // 항상 스택 즉시 복구 (setTimeout 없이 동기)
-    window.history.pushState({ page: 2 }, null, '');
   };
 
   // iOS 배너
@@ -493,10 +493,10 @@ window.addEventListener('beforeinstallprompt', e => {
    지도 이벤트
 ════════════════════════════════ */
 function mapClick(evt) {
+  preventBack();
   if (drawing) {
     drawCoords.push(evt.coordinate);
     refreshDraw();
-    // 첫 번째 점 이후부터 거리 표시 시작
     if (drawCoords.length >= 1) updateDistDisplay();
     return;
   }
@@ -520,13 +520,6 @@ function mapClick(evt) {
   if (hit) return;
   closeAllPopups();
 
-  const ll = fromMerc(evt.coordinate);
-  lastLL = ll;
-  document.getElementById('address-display').innerText = '주소 조회 중…';
-  reverseGeocode(ll[0], ll[1], addr => {
-    lastAddr = addr;
-    document.getElementById('address-display').innerText = addr;
-  });
 }
 
 function mapMove(evt) {
@@ -551,7 +544,8 @@ function mapRightClick(e) {
   const nearPoly = findNearPoly(px, 10);
   if (nearPoly) { showPolyMenu(lastCX || e.clientX, lastCY || e.clientY, nearPoly); return; }
 
-  // 빈 공간 우클릭 → 마커 추가 (PC 전용)
+  // 빈 공간 우클릭 → 마커 추가 (PC 마우스 전용, 모바일 제외)
+  if (e.pointerType === 'touch') return;
   pendingMarkerCoord = vmap.getCoordinateFromPixel(px);
   openMarkerModal();
 }
