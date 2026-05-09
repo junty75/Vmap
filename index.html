@@ -363,7 +363,7 @@ function initMap(lat, lng) {
     if (i instanceof ol.interaction.DoubleClickZoom) i.setActive(false);
   });
 
-  vmap.on('singleclick', mapClick);
+  vmap.on('click', mapClick);
   vmap.on('pointermove', mapMove);
   vmap.getViewport().addEventListener('contextmenu', mapRightClick);
 
@@ -410,13 +410,26 @@ function initMap(lat, lng) {
     try { vp.releasePointerCapture(e.pointerId); } catch(_) {}
     if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; holdTarget = null; return; }
     if (movingMk && isDraggingMk) {
-      suppressNextClick = true; // 마커 이동 확정 후 click 억제
+      suppressNextClick = true;
       endMoveMode();
       return;
     }
-    // 선 그리기 중 터치 → 미리 preventBack 호출 (singleclick 전에 스택 확보)
+    // 선 그리기 중 터치 탭 → pointerup에서 직접 점 추가 + preventBack
+    // OL3 click 이벤트는 터치 후 지연 발생하므로 suppressNextClick으로 중복 방지
     if (drawing && e.pointerType === 'touch') {
-      preventBack();
+      const rect = vp.getBoundingClientRect();
+      const pixel = [
+        (e.clientX - rect.left) * (vp.offsetWidth / rect.width),
+        (e.clientY - rect.top)  * (vp.offsetHeight / rect.height)
+      ];
+      const coord = vmap.getCoordinateFromPixel(pixel);
+      if (coord) {
+        drawCoords.push(coord);
+        refreshDraw();
+        if (drawCoords.length >= 1) updateDistDisplay();
+        preventBack(); // 즉시 스택 push → 뒤로가기로 바로 삭제 가능
+        suppressNextClick = true; // 이후 발생할 click 이벤트 무시
+      }
     }
   });
   vp.addEventListener('pointercancel', e => {
@@ -503,10 +516,11 @@ window.addEventListener('beforeinstallprompt', e => {
    지도 이벤트
 ════════════════════════════════ */
 function mapClick(evt) {
-  // pointerup(touch)에서 이미 preventBack 호출했으므로 중복 방지
-  if (evt.originalEvent?.pointerType !== 'touch') preventBack();
   if (suppressNextClick) { suppressNextClick = false; return; }
+  preventBack();
   if (drawing) {
+    // 터치는 pointerup에서 이미 처리 - 마우스 클릭만 여기서 처리
+    if (evt.originalEvent?.pointerType === 'touch') return;
     drawCoords.push(evt.coordinate);
     refreshDraw();
     if (drawCoords.length >= 1) updateDistDisplay();
