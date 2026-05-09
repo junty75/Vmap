@@ -239,6 +239,7 @@ let polylines = [];  // ol.layer.Vector[]
 let drawing   = false, drawCoords = [], drawLayer = null;
 let guideLine = null, distOv = null, distEl = null;
 let movingMk  = null, isDraggingMk = false;
+let suppressNextClick = false;
 let polyTarget = null;
 let lastCX = 0, lastCY = 0;
 let lastAddr = '주소 없음', lastLL = null;
@@ -362,7 +363,7 @@ function initMap(lat, lng) {
     if (i instanceof ol.interaction.DoubleClickZoom) i.setActive(false);
   });
 
-  vmap.on('click', mapClick);
+  vmap.on('singleclick', mapClick);
   vmap.on('pointermove', mapMove);
   vmap.getViewport().addEventListener('contextmenu', mapRightClick);
 
@@ -404,10 +405,19 @@ function initMap(lat, lng) {
       if (coord) movingMk.feat.getGeometry().setCoordinates(coord);
     }
   });
+
   vp.addEventListener('pointerup', e => {
     try { vp.releasePointerCapture(e.pointerId); } catch(_) {}
     if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; holdTarget = null; return; }
-    if (movingMk && isDraggingMk) endMoveMode();
+    if (movingMk && isDraggingMk) {
+      suppressNextClick = true; // 마커 이동 확정 후 click 억제
+      endMoveMode();
+      return;
+    }
+    // 선 그리기 중 터치 → 미리 preventBack 호출 (singleclick 전에 스택 확보)
+    if (drawing && e.pointerType === 'touch') {
+      preventBack();
+    }
   });
   vp.addEventListener('pointercancel', e => {
     try { vp.releasePointerCapture(e.pointerId); } catch(_) {}
@@ -493,7 +503,9 @@ window.addEventListener('beforeinstallprompt', e => {
    지도 이벤트
 ════════════════════════════════ */
 function mapClick(evt) {
-  preventBack();
+  // pointerup(touch)에서 이미 preventBack 호출했으므로 중복 방지
+  if (evt.originalEvent?.pointerType !== 'touch') preventBack();
+  if (suppressNextClick) { suppressNextClick = false; return; }
   if (drawing) {
     drawCoords.push(evt.coordinate);
     refreshDraw();
