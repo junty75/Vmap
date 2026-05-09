@@ -441,20 +441,25 @@ function endMoveMode() {
 }
 
 window.onload = () => {
-  // 뒤로가기 스택 2개 유지 → 연속 뒤로가기 보장
-  window.history.pushState({ page: 'map' }, '', '');
-  window.history.pushState({ page: 'map' }, '', '');
+  // 원본과 동일: 히스토리 1개 push
+  window.history.pushState({ page: 'map' }, null, '');
+
   window.onpopstate = () => {
     if (drawing && drawCoords.length > 0) {
-      drawCoords.pop(); refreshDraw();
-      if (!drawCoords.length) clearGuide();
-      else updateDistDisplay(); // 거리표시 갱신
+      // 점 삭제
+      drawCoords.pop();
+      refreshDraw();
+      if (drawCoords.length > 0) updateDistDisplay();
+      else clearGuide();
+      // 삭제 후 즉시 다시 push → 연속 뒤로가기 가능
+      window.history.pushState({ page: 'map' }, null, '');
+    } else {
+      if (confirm('앱을 종료하시겠습니까?')) {
+        // 종료
+      } else {
+        window.history.pushState({ page: 'map' }, null, '');
+      }
     }
-    // 스택 항상 2개 유지
-    setTimeout(() => {
-      window.history.pushState({ page: 'map' }, '', '');
-      window.history.pushState({ page: 'map' }, '', '');
-    }, 0);
   };
 
   // iOS 배너
@@ -493,7 +498,13 @@ window.addEventListener('beforeinstallprompt', e => {
    지도 이벤트
 ════════════════════════════════ */
 function mapClick(evt) {
-  if (drawing) { drawCoords.push(evt.coordinate); refreshDraw(); return; }
+  if (drawing) {
+    drawCoords.push(evt.coordinate);
+    refreshDraw();
+    // 첫 번째 점 이후부터 거리 표시 시작
+    if (drawCoords.length >= 1) updateDistDisplay();
+    return;
+  }
 
   // 마커 조준원 모드: 클릭 시 해당 위치에 마커 추가 모달
   if (markerPlacingMode) {
@@ -659,14 +670,7 @@ function startDraw() {
   document.getElementById('vmap').classList.add('draw-mode');
   document.getElementById('drawBtn').classList.add('active');
   document.getElementById('drawBtn').title = '선 그리기 종료';
-  // 거리표시 초기화
-  if (!distEl) { distEl = document.createElement('div'); distEl.className = 'dist-tip'; }
-  distEl.textContent = '0m';
-  if (!distOv) {
-    distOv = new ol.Overlay({ element: distEl, offset: [8, -18], positioning: 'bottom-left' });
-    vmap.addOverlay(distOv);
-  }
-  distOv.setPosition(vmap.getView().getCenter());
+  // 거리표시는 첫 클릭 후 시작 (startDraw에서 표시 안 함)
 }
 
 function endDraw() {
