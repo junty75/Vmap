@@ -441,25 +441,20 @@ function endMoveMode() {
 }
 
 window.onload = () => {
-  // 원본과 동일: 히스토리 1개 push
-  window.history.pushState({ page: 'map' }, null, '');
+  // 스택 2개로 시작 (연속 뒤로가기 버퍼)
+  window.history.pushState({ page: 1 }, null, '');
+  window.history.pushState({ page: 2 }, null, '');
 
-  window.onpopstate = () => {
+  window.onpopstate = (e) => {
     if (drawing && drawCoords.length > 0) {
       // 점 삭제
       drawCoords.pop();
       refreshDraw();
       if (drawCoords.length > 0) updateDistDisplay();
       else clearGuide();
-      // 삭제 후 즉시 다시 push → 연속 뒤로가기 가능
-      window.history.pushState({ page: 'map' }, null, '');
-    } else {
-      if (confirm('앱을 종료하시겠습니까?')) {
-        // 종료
-      } else {
-        window.history.pushState({ page: 'map' }, null, '');
-      }
     }
+    // 항상 스택 즉시 복구 (setTimeout 없이 동기)
+    window.history.pushState({ page: 2 }, null, '');
   };
 
   // iOS 배너
