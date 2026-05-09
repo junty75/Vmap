@@ -1,13 +1,15 @@
 {
-  "name": "KMZ 뷰어",
-  "short_name": "KMZ 뷰어",
+  "name": "V월드 KMZ 뷰어",
+  "short_name": "V월드KMZ뷰어",
   "start_url": "./",
   "display": "standalone",
   "file_handlers": [
     {
       "action": "./",
       "accept": {
-        "application/vnd.google-earth.kmz": [".kmz"]
+        "application/vnd.google-earth.kmz": [
+          ".kmz"
+        ]
       }
     }
   ]
