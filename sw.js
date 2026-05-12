@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kmz-viewer-v17';
+const CACHE_NAME = 'kmz-viewer-v18';
 const STATIC_ASSETS = [
   './index.html',
   './manifest.json',
