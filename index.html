@@ -368,8 +368,19 @@ function initMap(lat, lng) {
 
   const vp = vmap.getViewport();
 
+  let touchDrawStartX = 0, touchDrawStartY = 0;
+  vp.addEventListener('pointerdown', e => {
+    if (drawing && e.pointerType === 'touch') {
+      touchDrawStartX = e.clientX;
+      touchDrawStartY = e.clientY;
+    }
+  }, { passive: true });
+
   vp.addEventListener('pointerup', e => {
     if (drawing && e.pointerType === 'touch') {
+      const dx = e.clientX - touchDrawStartX;
+      const dy = e.clientY - touchDrawStartY;
+      if (Math.hypot(dx, dy) > 10) return; // 드래그(지도 이동)는 무시
       const rect = vp.getBoundingClientRect();
       const pixel = [
         (e.clientX - rect.left) * (vp.offsetWidth / rect.width),
@@ -405,6 +416,8 @@ window.onload = () => {
   window.history.pushState({ page: 'map' }, null, '');
 
 window.onpopstate = (e) => {
+  // 즉시 스택 복원 — 연속 뒤로가기 시 앱 종료 방지
+  window.history.pushState({ page: 'map' }, null, '');
   if (drawing) {
     if (drawCoords.length > 0) {
       drawCoords.pop();
@@ -416,12 +429,9 @@ window.onpopstate = (e) => {
         clearAllGuide();
       }
     }
-    window.history.pushState({ page: 'map' }, null, '');
   } else {
     if (confirm('앱을 종료하시겠습니까?')) {
-      // 웹앱 환경에서는 실제 종료 불가
-    } else {
-      window.history.pushState({ page: 'map' }, null, '');
+      window.history.back();
     }
   }
 };
