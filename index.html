@@ -399,42 +399,27 @@ let historyState = 0;
 function preventBack() {
   historyState++;
   window.history.pushState({ id: 'step' + historyState }, null, '');
-  window.history.pushState({ id: 'step' + historyState + '_2' }, null, '');
 }
 
 window.onload = () => {
-  // 초기 실행 시 스택 2개 쌓기
   window.history.pushState({ page: 'map' }, null, '');
-  window.history.pushState({ page: 'map2' }, null, '');
 
 window.onpopstate = (e) => {
   if (drawing && drawCoords.length > 0) {
-    // 1. 마지막 좌표 삭제
-    drawCoords.pop(); 
-    
-    // 2. 확정된 선 다시 그리기
-    refreshDraw(); 
-    
-    // 3. 🔥 핵심: 가이드 선(잔상)과 미리보기 레이어를 명시적으로 비우기
+    drawCoords.pop();
+    refreshDraw();
     clearGuide();
-    
     if (drawCoords.length > 0) {
       updateDistDisplay();
     } else {
-      // 점이 하나도 없으면 모든 가이드 및 오버레이 초기화
-      clearAllGuide(); 
+      clearAllGuide();
     }
-    
-    // 4. 연속 삭제를 위한 스택 유지 (이전 답변 내용)
     window.history.pushState({ page: 'map' }, null, '');
-    window.history.pushState({ page: 'map2' }, null, '');
   } else {
-    // 그리기 모드가 아닐 때 종료 확인 등...
     if (confirm('앱을 종료하시겠습니까?')) {
-      window.history.back();
+      // 웹앱 환경에서는 실제 종료 불가
     } else {
       window.history.pushState({ page: 'map' }, null, '');
-      window.history.pushState({ page: 'map2' }, null, '');
     }
   }
 };
@@ -666,9 +651,9 @@ function refreshDraw() {
     const f = new ol.Feature(new ol.geom.Point(drawCoords[0]));
     f.setStyle(new ol.style.Style({
       image: new ol.style.Circle({
-        radius: 5,
+        radius: 3,
         fill: new ol.style.Fill({ color: '#FF0000' }),
-        stroke: new ol.style.Stroke({ color: '#FF0000', width: 2 })
+        stroke: new ol.style.Stroke({ color: '#FF0000', width: 1 })
       })
     }));
     src.addFeature(f);
