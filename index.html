@@ -598,9 +598,16 @@ function initMap(lat, lng) {
 
 let _exitRequested = false;
 
+function fillHistory() {
+  // 연속 빠른 누름에도 스택이 소진되지 않도록 충분히 채움
+  // Android Chrome은 JS 실행 전에 여러 번의 네비게이션을 큐에 넣을 수 있으므로
+  // 버퍼를 넉넉하게 유지해야 앱이 종료되지 않음
+  for (let i = 0; i < 50; i++) preventBack();
+}
+
 window.onload = () => {
-  // 초기 버퍼 20개 — 모두 고유 ID로 push (동일 state 중복 시 Android가 묶어버리는 문제 방지)
-  for (let i = 0; i < 20; i++) preventBack();
+  // 초기 버퍼 100개 — 연속 빠른 누름에 대비
+  for (let i = 0; i < 100; i++) preventBack();
 
   window.onpopstate = (e) => {
     if (_exitRequested) return;
@@ -616,9 +623,8 @@ window.onload = () => {
       if (vmap && e.state && e.state.cx) {
         vmap.getView().setCenter([e.state.cx, e.state.cy]);
       }
-      // 소비된 스택 2개 보충 (각각 고유 좌표 포함)
-      preventBack();
-      preventBack();
+      // 소비된 스택 50개 보충 — 연속 빠른 누름으로 인한 스택 소진 방지
+      fillHistory();
     } else {
       // 일반 모드: 앱 종료 확인
       if (confirm('앱을 종료하시겠습니까?')) {
