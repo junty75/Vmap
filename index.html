@@ -371,9 +371,21 @@ async function loadKMZfromDB() {
     });
   } catch(e) { return null; }
 }
+async function clearDB() {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).delete('last');
+  } catch(e) { console.warn('DB 초기화 오류', e); }
+}
+
 async function autoSaveToDB() {
   try {
-    if (markers.length === 0 && polylines.length === 0) return;
+    // 모두 삭제된 경우 DB 항목 자체를 지워 재실행 시 복원되지 않도록 함
+    if (markers.length === 0 && polylines.length === 0) {
+      await clearDB();
+      return;
+    }
     const zip = new JSZip();
     const ff = zip.folder('files');
     let xml = '';
@@ -580,8 +592,11 @@ window.onload = () => {
   function handlePopstate() {
     if (exitRequested) return;
 
-    // 항상 먼저 상태 추가 (빠른 연속 뒤로가기에도 버퍼 유지 = 앱 종료 방지)
-    window.history.pushState({ page: 'map' }, null, '');
+    // 고속 연속 탭에도 버퍼 절대 소진 안 되도록 한 번에 5개 추가
+    // (모바일 브라우저는 popstate 2개를 동시에 큐에 올릴 수 있음)
+    for (let i = 0; i < 5; i++) {
+      window.history.pushState({ page: 'map' }, null, '');
+    }
 
     if (drawing) {
       // 선그리기 모드: 마지막 점 삭제
