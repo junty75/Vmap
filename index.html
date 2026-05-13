@@ -296,17 +296,10 @@ let markers   = [];  // {feat, lyr, ov, name, isPhoto, imgSrc}
 let polylines = [];  // ol.layer.Vector[]
 let drawing   = false, drawCoords = [], drawLayer = null;
 let _historyState = 0;
-let _microOffset  = 0; // 극소량 좌표 오프셋 (히스토리 항목마다 고유 지도 좌표 부여)
 
 function preventBack() {
   _historyState++;
-  _microOffset += 0.00001; // EPSG:3857 기준 ~0.001m, 완전히 눈에 안 보임
-  const center = (vmap ? vmap.getView().getCenter() : [0, 0]);
-  window.history.pushState({
-    id    : _historyState,
-    cx    : center[0] + _microOffset,
-    cy    : center[1]
-  }, null, '');
+  window.history.pushState({ id: _historyState }, null, '');
 }
 let guideLine = null, distOv = null, distEl = null;
 let suppressNextClick = false;
@@ -618,12 +611,6 @@ window.onload = () => {
         drawCoords.pop();
         refreshDraw();
       }
-      // 핵심: 지도를 극소량 이동 — Android가 "진짜 다른 상태"로 인식하도록
-      // (e.state에 저장된 좌표로 복원, 0.001m 이내라 눈에 전혀 안 보임)
-      if (vmap && e.state && e.state.cx) {
-        vmap.getView().setCenter([e.state.cx, e.state.cy]);
-      }
-      // 소비된 스택 50개 보충 — 연속 빠른 누름으로 인한 스택 소진 방지
       fillHistory();
     } else {
       // 일반 모드: 앱 종료 확인
