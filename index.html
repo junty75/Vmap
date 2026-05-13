@@ -295,6 +295,11 @@ let vmap = null;
 let markers   = [];  // {feat, lyr, ov, name, isPhoto, imgSrc}
 let polylines = [];  // ol.layer.Vector[]
 let drawing   = false, drawCoords = [], drawLayer = null;
+let _historyState = 0;
+function preventBack() {
+  _historyState++;
+  window.history.pushState({ id: _historyState }, null, '');
+}
 let guideLine = null, distOv = null, distEl = null;
 let suppressNextClick = false;
 let polyTarget = null;
@@ -540,6 +545,7 @@ function initMap(lat, lng) {
       if (drawing) {
         if (coord) {
           drawCoords.push(coord);
+          preventBack(); // 점 추가 시 스택 미리 보충
           refreshDraw();
           if (drawCoords.length >= 1) updateDistDisplay();
         }
@@ -592,11 +598,8 @@ window.onload = () => {
   function handlePopstate() {
     if (exitRequested) return;
 
-    // 고속 연속 탭에도 버퍼 절대 소진 안 되도록 한 번에 5개 추가
-    // (모바일 브라우저는 popstate 2개를 동시에 큐에 올릴 수 있음)
-    for (let i = 0; i < 5; i++) {
-      window.history.pushState({ page: 'map' }, null, '');
-    }
+    // 소비된 스택 1개 즉시 보충 (점 추가 시 preventBack()이 미리 쌓아뒀으므로 1개면 충분)
+    window.history.pushState({ page: 'map' }, null, '');
 
     if (drawing) {
       // 선그리기 모드: 마지막 점 삭제
@@ -656,6 +659,7 @@ function mapClick(evt) {
   if (suppressNextClick) { suppressNextClick = false; return; }
   if (drawing) {
     drawCoords.push(evt.coordinate);
+    preventBack(); // 점 추가 시 스택 미리 보충
     refreshDraw();
     if (drawCoords.length >= 1) updateDistDisplay();
     return;
