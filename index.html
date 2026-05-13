@@ -295,12 +295,6 @@ let vmap = null;
 let markers   = [];  // {feat, lyr, ov, name, isPhoto, imgSrc}
 let polylines = [];  // ol.layer.Vector[]
 let drawing   = false, drawCoords = [], drawLayer = null;
-let _historyState = 0;
-
-function preventBack() {
-  _historyState++;
-  window.history.pushState({ id: _historyState }, null, '');
-}
 let guideLine = null, distOv = null, distEl = null;
 let suppressNextClick = false;
 let polyTarget = null;
@@ -538,7 +532,6 @@ function initMap(lat, lng) {
       const dx = e.clientX - touchDrawStartX;
       const dy = e.clientY - touchDrawStartY;
       if (Math.hypot(dx, dy) > 10) return; // 드래그(지도 이동)는 무시
-      preventBack(); // 모든 탭마다 스택 보충 (그리기 모드 여부 무관 — 잘되는거 파일과 동일 패턴)
       const rect = vp.getBoundingClientRect();
       const pixel = [
         (e.clientX - rect.left) * (vp.offsetWidth / rect.width),
@@ -591,16 +584,8 @@ function initMap(lat, lng) {
 
 let _exitRequested = false;
 
-function fillHistory() {
-  // 연속 빠른 누름에도 스택이 소진되지 않도록 충분히 채움
-  // Android Chrome은 JS 실행 전에 여러 번의 네비게이션을 큐에 넣을 수 있으므로
-  // 버퍼를 넉넉하게 유지해야 앱이 종료되지 않음
-  for (let i = 0; i < 50; i++) preventBack();
-}
-
 window.onload = () => {
-  // 초기 버퍼 100개 — 연속 빠른 누름에 대비
-  for (let i = 0; i < 100; i++) preventBack();
+  window.history.pushState({ page: 'map' }, null, '');
 
   window.onpopstate = (e) => {
     if (_exitRequested) return;
@@ -611,15 +596,14 @@ window.onload = () => {
         drawCoords.pop();
         refreshDraw();
       }
-      fillHistory();
+      window.history.pushState({ page: 'map' }, null, '');
     } else {
       // 일반 모드: 앱 종료 확인
       if (confirm('앱을 종료하시겠습니까?')) {
         _exitRequested = true;
         window.history.back();
       } else {
-        preventBack();
-        preventBack();
+        window.history.pushState({ page: 'map' }, null, '');
       }
     }
   };
@@ -662,7 +646,6 @@ window.addEventListener('beforeinstallprompt', e => {
 function mapClick(evt) {
   if (evt.originalEvent?.pointerType === 'touch') return; // 터치는 pointerup에서 처리
   if (suppressNextClick) { suppressNextClick = false; return; }
-  preventBack(); // 모든 클릭마다 스택 보충 (그리기 모드 여부 무관 — 잘되는거 파일과 동일 패턴)
   if (drawing) {
     drawCoords.push(evt.coordinate);
     refreshDraw();
