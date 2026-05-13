@@ -599,22 +599,24 @@ window.onload = () => {
     if (_exitRequested) return;
 
     if (drawing) {
-      // 선그리기 모드: 마지막 점 삭제 → 소비된 스택 1개 보충
+      // 선그리기 모드: 마지막 점 삭제
       if (drawCoords.length > 0) {
         drawCoords.pop();
         refreshDraw();
       }
-      // drawCoords가 0이어도 drawing 모드 유지 (앱 종료 안 함)
-      window.history.pushState({ page: 'map' }, null, '');
+      // 소비된 스택을 2개(서로 다른 객체)로 보충 — 잘되는거 파일과 동일 패턴
+      // 1개만 push하면 고속 연속 탭 시 Android가 따라가지 못함
+      window.history.pushState({ page: 'map' },  null, '');
+      window.history.pushState({ page: 'map2' }, null, '');
     } else {
       // 일반 모드: 앱 종료 확인
       if (confirm('앱을 종료하시겠습니까?')) {
         _exitRequested = true;
-        window.close();
-        setTimeout(() => window.history.go(-window.history.length), 150);
+        window.history.back();
       } else {
-        // 취소 시 스택 복구
-        window.history.pushState({ page: 'map' }, null, '');
+        // 취소 시 스택 복구 (2개)
+        window.history.pushState({ page: 'map' },  null, '');
+        window.history.pushState({ page: 'map2' }, null, '');
       }
     }
   };
