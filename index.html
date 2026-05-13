@@ -296,9 +296,17 @@ let markers   = [];  // {feat, lyr, ov, name, isPhoto, imgSrc}
 let polylines = [];  // ol.layer.Vector[]
 let drawing   = false, drawCoords = [], drawLayer = null;
 let _historyState = 0;
+let _microOffset  = 0; // 극소량 좌표 오프셋 (히스토리 항목마다 고유 지도 좌표 부여)
+
 function preventBack() {
   _historyState++;
-  window.history.pushState({ id: _historyState }, null, '');
+  _microOffset += 0.00001; // EPSG:3857 기준 ~0.001m, 완전히 눈에 안 보임
+  const center = (vmap ? vmap.getView().getCenter() : [0, 0]);
+  window.history.pushState({
+    id    : _historyState,
+    cx    : center[0] + _microOffset,
+    cy    : center[1]
+  }, null, '');
 }
 let guideLine = null, distOv = null, distEl = null;
 let suppressNextClick = false;
@@ -594,8 +602,7 @@ window.onload = () => {
   // 초기 버퍼 20개 — 모두 고유 ID로 push (동일 state 중복 시 Android가 묶어버리는 문제 방지)
   for (let i = 0; i < 20; i++) preventBack();
 
-  // window.onpopstate 방식 사용 (잘되는거 파일과 동일 패턴)
-  window.onpopstate = () => {
+  window.onpopstate = (e) => {
     if (_exitRequested) return;
 
     if (drawing) {
@@ -604,19 +611,22 @@ window.onload = () => {
         drawCoords.pop();
         refreshDraw();
       }
-      // 소비된 스택을 2개(서로 다른 객체)로 보충 — 잘되는거 파일과 동일 패턴
-      // 1개만 push하면 고속 연속 탭 시 Android가 따라가지 못함
-      window.history.pushState({ page: 'map' },  null, '');
-      window.history.pushState({ page: 'map2' }, null, '');
+      // 핵심: 지도를 극소량 이동 — Android가 "진짜 다른 상태"로 인식하도록
+      // (e.state에 저장된 좌표로 복원, 0.001m 이내라 눈에 전혀 안 보임)
+      if (vmap && e.state && e.state.cx) {
+        vmap.getView().setCenter([e.state.cx, e.state.cy]);
+      }
+      // 소비된 스택 2개 보충 (각각 고유 좌표 포함)
+      preventBack();
+      preventBack();
     } else {
       // 일반 모드: 앱 종료 확인
       if (confirm('앱을 종료하시겠습니까?')) {
         _exitRequested = true;
         window.history.back();
       } else {
-        // 취소 시 스택 복구 (2개)
-        window.history.pushState({ page: 'map' },  null, '');
-        window.history.pushState({ page: 'map2' }, null, '');
+        preventBack();
+        preventBack();
       }
     }
   };
