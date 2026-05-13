@@ -630,11 +630,25 @@ function endDraw() {
 }
 
 function refreshDraw() {
-  if (!drawLayer || drawCoords.length < 2) return;
-  const src = drawLayer.getSource(); src.clear();
-  const f = new ol.Feature(new ol.geom.LineString(drawCoords));
-  f.setStyle(lineSt('#FF0000', 3));
-  src.addFeature(f);
+  if (!drawLayer) return;
+  const src = drawLayer.getSource();
+  src.clear();                          // 항상 먼저 지운다
+  if (drawCoords.length >= 2) {
+    const f = new ol.Feature(new ol.geom.LineString(drawCoords));
+    f.setStyle(lineSt('#FF0000', 3));
+    src.addFeature(f);
+  } else if (drawCoords.length === 1) {
+    // 마지막 점 1개: 빨간 원으로 표시
+    const f = new ol.Feature(new ol.geom.Point(drawCoords[0]));
+    f.setStyle(new ol.style.Style({
+      image: new ol.style.Circle({
+        radius: 5,
+        fill:   new ol.style.Fill({ color: '#FF0000' }),
+        stroke: new ol.style.Stroke({ color: 'white', width: 1.5 })
+      })
+    }));
+    src.addFeature(f);
+  }
   drawLayer._coords = drawCoords.slice();
 }
 
