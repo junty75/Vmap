@@ -23,7 +23,7 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 #address-display {
   position:absolute;top:10px;left:10px;z-index:2000;
   background:rgba(0,0,0,0.62);color:white;font-size:13px;
-  padding:5px 10px;border-radius:6px;pointer-events:none;
+  padding:5px 10px;border-radius:6px;pointer-events:auto;cursor:pointer;
   white-space:nowrap;max-width:calc(100vw - 24px);
   overflow:hidden;text-overflow:ellipsis;
 }
@@ -115,6 +115,20 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 #editSaveBtn{background:#1a73e8;color:white;}
 #editDeleteBtn{background:#e53935;color:white;}
 #editCancelBtn{background:#f1f3f4;color:#555;}
+#editMoveBtn{background:#00897b;color:white;}
+#markerEditModalBox .edit-modal-btns button{font-size:13px;padding:10px 4px;}
+
+/* ── 이동 힌트 ── */
+#moveHint{display:none;position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.84);color:white;font-size:13px;padding:10px 18px;border-radius:12px;z-index:5100;pointer-events:auto;text-align:center;white-space:nowrap;}
+#moveHint.show{display:block;}
+#moveHint .mh-row{margin-top:8px;display:flex;gap:8px;justify-content:center;}
+#moveHint .mh-row button{padding:6px 20px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;}
+#moveHint .mh-ok{background:#1a73e8;color:white;}
+#moveHint .mh-cancel{background:#555;color:white;}
+
+/* ── 지도종류 선택 ── */
+#mapTypeBox{position:absolute;z-index:1000;top:352px;right:16px;}
+#mapTypeBox select{width:48px;padding:5px 1px;border:none;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.3);font-size:11px;background:white;cursor:pointer;text-align:center;}
 
 /* ── 전체화면 사진뷰어 ── */
 #photoViewer{display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:8000;align-items:center;justify-content:center;flex-direction:column;padding:16px;}
@@ -150,7 +164,7 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 <div id="vmap"></div>
 
 <!-- 주소 표시 -->
-<div id="address-display">위치 확인 중...</div>
+<div id="address-display" onclick="copyAndMark()" title="탭하면 주소 복사">위치 확인 중...</div>
 
 <!-- 플로팅 버튼 -->
 <button class="btn" id="saveBtn" title="KMZ로 저장" disabled>💾</button>
@@ -175,6 +189,15 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
   </svg>
 </button>
 <button class="btn" id="cadastralBtn" onclick="toggleCadastral()" title="지적도">지적도</button>
+<!-- 지도종류 선택 -->
+<div id="mapTypeBox">
+  <select id="mapTypeSelect" onchange="changeVWorldMapType(this.value)" title="지도 종류">
+    <option value="PHOTO_HYBRID" selected>위성+지도</option>
+    <option value="PHOTO">위성사진</option>
+    <option value="GRAPHIC">일반지도</option>
+    <option value="GRAY">회색지도</option>
+  </select>
+</div>
 <input type="file" id="fileInput" accept=".kmz,.zip,image/jpeg,image/png,.jpg,.jpeg,.png" multiple>
 
 <!-- 조준원 -->
@@ -222,6 +245,7 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
     <input type="text" id="markerEditNameInput" placeholder="마커 이름" maxlength="50">
     <div class="edit-modal-btns">
       <button id="editSaveBtn">수정</button>
+      <button id="editMoveBtn">이동</button>
       <button id="editDeleteBtn">삭제</button>
       <button id="editCancelBtn">취소</button>
     </div>
@@ -242,6 +266,15 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 
 <!-- 삭제 힌트 -->
 <div id="deleteHint">길게 눌러서 마커 / 선을 삭제할 수 있어요</div>
+
+<!-- 이동 힌트 -->
+<div id="moveHint">
+  지도를 이동하여 마커 위치를 선택하세요
+  <div class="mh-row">
+    <button class="mh-ok" id="moveOkBtn">확인</button>
+    <button class="mh-cancel" id="moveCancelBtn">취소</button>
+  </div>
+</div>
 
 <!-- iOS 설치 배너 -->
 <div id="installBanner">
@@ -271,6 +304,8 @@ let locCount  = 0;
 let trackingOn = false, watchId = null, locationFeat = null, locationLyr = null;
 let markerPlacingMode = false;
 let hintShown = false;
+let deviceHeading = null;   // 기기 나침반 방향 (정지 중 방향 표시용)
+let headingInterval = null; // 정지 중 방향 갱신 타이머
 
 const VWORLD_KEY = '55FD7275-A6F5-3B69-9966-CD4BFA2FD35F';
 
@@ -416,11 +451,13 @@ function parseShortAddr(addr) {
 }
 
 let addrTimer = null;
-function scheduleAddrUpdate() {
+function scheduleAddrUpdate(overrideLng, overrideLat) {
   clearTimeout(addrTimer);
   addrTimer = setTimeout(async () => {
     if (!vmap) return;
-    const [lng, lat] = fromMerc(vmap.getView().getCenter());
+    const [lng, lat] = (overrideLng != null && overrideLat != null)
+      ? [overrideLng, overrideLat]
+      : fromMerc(vmap.getView().getCenter());
     const url = `https://api.vworld.kr/req/address?service=address&request=getAddress&version=2.0` +
       `&crs=epsg:4326&point=${lng},${lat}&type=parcel&format=json&key=${VWORLD_KEY}`;
     try {
@@ -428,7 +465,7 @@ function scheduleAddrUpdate() {
       const text = (d?.response?.status === 'OK') ? (d.response.result?.[0]?.text || '') : '';
       document.getElementById('address-display').textContent = parseShortAddr(text) || '주소 없음';
     } catch(e) { document.getElementById('address-display').textContent = ''; }
-  }, 800);
+  }, 600);
 }
 
 /* ════════════════════════════════
@@ -455,14 +492,12 @@ function initMap(lat, lng) {
   vmap.on('click', mapClick);
   vmap.on('pointermove', mapMove);
   vmap.getViewport().addEventListener('contextmenu', mapRightClick);
-  vmap.on('moveend', scheduleAddrUpdate);
   vmap.getView().on('change:rotation', () => {
     const rot = vmap.getView().getRotation();
     const deg = -(rot * 180 / Math.PI);
     document.getElementById('compassNeedle').style.transform = `rotate(${deg}deg)`;
-    if (!rotationLocked && Math.abs(rot) > 0.02) northSnapped = false;
   });
-  scheduleAddrUpdate();
+  scheduleAddrUpdate(); // 초기 로드 시 중심 주소 표시
 
   const vp = vmap.getViewport();
 
@@ -479,19 +514,43 @@ function initMap(lat, lng) {
       const dx = e.clientX - touchDrawStartX;
       const dy = e.clientY - touchDrawStartY;
       if (Math.hypot(dx, dy) > 10) return; // 드래그(지도 이동)는 무시
+      const rect = vp.getBoundingClientRect();
+      const pixel = [
+        (e.clientX - rect.left) * (vp.offsetWidth / rect.width),
+        (e.clientY - rect.top)  * (vp.offsetHeight / rect.height)
+      ];
+      const coord = vmap.getCoordinateFromPixel(pixel);
       if (drawing) {
-        const rect = vp.getBoundingClientRect();
-        const pixel = [
-          (e.clientX - rect.left) * (vp.offsetWidth / rect.width),
-          (e.clientY - rect.top)  * (vp.offsetHeight / rect.height)
-        ];
-        const coord = vmap.getCoordinateFromPixel(pixel);
         if (coord) {
           drawCoords.push(coord);
           refreshDraw();
           if (drawCoords.length >= 1) updateDistDisplay();
-          suppressNextClick = true;
         }
+        suppressNextClick = true;
+      } else {
+        // 마커 조준원 모드
+        if (markerPlacingMode) {
+          markerPlacingMode = false;
+          document.getElementById('markerBtn').classList.remove('active');
+          document.getElementById('crosshair').classList.remove('show');
+          if (coord) { pendingMarkerCoord = coord; openMarkerModal(); }
+          suppressNextClick = true;
+          return;
+        }
+        // 마커 탭 감지
+        let hit = false;
+        vmap.forEachFeatureAtPixel(pixel, feat => {
+          if (hit) return;
+          const m = markers.find(mk => mk.feat === feat);
+          if (m) { hit = true; openPopup(m); }
+        }, { hitTolerance: 20 });
+        if (!hit) closeAllPopups();
+        // 탭 지점 주소 업데이트
+        if (coord) {
+          const [lo, la] = fromMerc(coord);
+          scheduleAddrUpdate(lo, la);
+        }
+        suppressNextClick = true;
       }
     }
   });
@@ -575,6 +634,7 @@ window.addEventListener('beforeinstallprompt', e => {
 ════════════════════════════════ */
 function mapClick(evt) {
   if (evt.originalEvent?.pointerType === 'touch') return; // 터치는 pointerup에서 처리
+  if (suppressNextClick) { suppressNextClick = false; return; }
   if (drawing) {
     drawCoords.push(evt.coordinate);
     refreshDraw();
@@ -591,6 +651,10 @@ function mapClick(evt) {
     openMarkerModal();
     return;
   }
+
+  // 클릭 지점 주소 업데이트
+  const [lo, la] = fromMerc(evt.coordinate);
+  scheduleAddrUpdate(lo, la);
 
   let hit = false;
   vmap.forEachFeatureAtPixel(evt.pixel, feat => {
@@ -706,6 +770,44 @@ document.getElementById('markerEditNameInput').addEventListener('keydown', e => 
   if (e.key === 'Enter') document.getElementById('editSaveBtn').click();
   if (e.key === 'Escape') closeMarkerEditModal();
 });
+
+/* ════════════════════════════════
+   마커 이동 모드
+════════════════════════════════ */
+let moveTargetObj = null;
+let moveOriginalCoord = null;
+let moveViewHandler = null;
+
+document.getElementById('editMoveBtn').onclick = () => {
+  if (!editTargetObj) return;
+  moveTargetObj = editTargetObj;
+  moveOriginalCoord = moveTargetObj.feat.getGeometry().getCoordinates().slice();
+  if (moveTargetObj.ov) { vmap.removeOverlay(moveTargetObj.ov); moveTargetObj.ov = null; }
+  closeMarkerEditModal();
+  // 마커를 지도 중심으로 이동 후, 지도 이동 시 같이 추적
+  moveTargetObj.feat.getGeometry().setCoordinates(vmap.getView().getCenter());
+  moveViewHandler = () => {
+    if (moveTargetObj) moveTargetObj.feat.getGeometry().setCoordinates(vmap.getView().getCenter());
+  };
+  vmap.getView().on('change:center', moveViewHandler);
+  document.getElementById('moveHint').classList.add('show');
+};
+
+document.getElementById('moveOkBtn').onclick = () => {
+  if (moveViewHandler) { vmap.getView().un('change:center', moveViewHandler); moveViewHandler = null; }
+  moveTargetObj = null; moveOriginalCoord = null;
+  document.getElementById('moveHint').classList.remove('show');
+  autoSaveToDB();
+};
+
+document.getElementById('moveCancelBtn').onclick = () => {
+  if (moveTargetObj && moveOriginalCoord) {
+    moveTargetObj.feat.getGeometry().setCoordinates(moveOriginalCoord);
+  }
+  if (moveViewHandler) { vmap.getView().un('change:center', moveViewHandler); moveViewHandler = null; }
+  moveTargetObj = null; moveOriginalCoord = null;
+  document.getElementById('moveHint').classList.remove('show');
+};
 
 /* ════════════════════════════════
    마커 추가 버튼 (조준원 모드)
@@ -1059,30 +1161,66 @@ function copyAndMark() {
 /* ════════════════════════════════
    내 위치 토글
 ════════════════════════════════ */
+/* 기기 나침반 리스너 설정 */
+function setupDeviceOrientation() {
+  const addListeners = () => {
+    // Android: deviceorientationabsolute (절대 방위각)
+    window.addEventListener('deviceorientationabsolute', e => {
+      if (e.alpha != null) deviceHeading = (360 - e.alpha) % 360;
+    }, true);
+    // iOS: webkitCompassHeading, Android 폴백: deviceorientation
+    window.addEventListener('deviceorientation', e => {
+      if (e.webkitCompassHeading != null) deviceHeading = e.webkitCompassHeading;
+      else if (e.absolute && e.alpha != null) deviceHeading = (360 - e.alpha) % 360;
+    }, true);
+  };
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    // iOS 13+: 권한 요청
+    DeviceOrientationEvent.requestPermission()
+      .then(s => { if (s === 'granted') addListeners(); })
+      .catch(() => addListeners());
+  } else {
+    addListeners();
+  }
+}
+
 document.getElementById('myLocationBtn').onclick = () => {
   const btn = document.getElementById('myLocationBtn');
   if (trackingOn) {
     trackingOn = false;
     if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
     if (locationLyr) { removeLyr(locationLyr); locationLyr = null; locationFeat = null; }
+    if (headingInterval) { clearInterval(headingInterval); headingInterval = null; }
     btn.classList.remove('active');
   } else {
     trackingOn = true; btn.classList.add('active');
+    setupDeviceOrientation();
+    // 정지 중에도 방향 갱신 (0.5초마다)
+    headingInterval = setInterval(() => {
+      if (locationFeat && deviceHeading !== null) {
+        locationFeat.setStyle(makeLocationStyle(deviceHeading));
+      }
+    }, 500);
     watchId = navigator.geolocation.watchPosition(pos => {
       const c = toMerc(pos.coords.longitude, pos.coords.latitude);
+      // GPS 이동 중이면 GPS 방향, 정지 중이면 나침반 방향
+      const h = (pos.coords.heading != null && !isNaN(pos.coords.heading) && pos.coords.heading >= 0)
+        ? pos.coords.heading : deviceHeading;
       if (!locationFeat) {
         locationFeat = new ol.Feature({ geometry: new ol.geom.Point(c) });
-        locationFeat.setStyle(makeLocationStyle(pos.coords.heading));
+        locationFeat.setStyle(makeLocationStyle(h));
         locationLyr = new ol.layer.Vector({ source: new ol.source.Vector({ features: [locationFeat] }), zIndex: 200 });
         addLyr(locationLyr);
       } else {
         locationFeat.getGeometry().setCoordinates(c);
-        locationFeat.setStyle(makeLocationStyle(pos.coords.heading));
+        locationFeat.setStyle(makeLocationStyle(h));
       }
       vmap.getView().setCenter(c);
     }, () => {
       alert('위치 정보를 가져올 수 없습니다.');
       trackingOn = false; btn.classList.remove('active');
+      if (headingInterval) { clearInterval(headingInterval); headingInterval = null; }
     }, { enableHighAccuracy: true, maximumAge: 3000 });
   }
 };
@@ -1390,41 +1528,44 @@ function fitPts(pts) {
 }
 
 /* ════════════════════════════════
-   나침반 / 회전 잠금
+   나침반 / 회전 잠금 (2-state)
+   1번째 클릭: 북방향 정렬 + 잠금
+   2번째 클릭: 잠금 해제
 ════════════════════════════════ */
 let rotationLocked = false;
-let northSnapped = false;
 
 document.getElementById('compassBtn').onclick = () => {
   if (!vmap) return;
   const view = vmap.getView();
-
   if (rotationLocked) {
-    // 3번째 클릭: 잠금 해제
+    // 잠금 해제
     rotationLocked = false;
-    northSnapped = false;
     vmap.getInteractions().forEach(i => {
       if (i instanceof ol.interaction.DragRotate || i instanceof ol.interaction.PinchRotate)
         i.setActive(true);
     });
     document.getElementById('compassBtn').classList.remove('locked');
-    document.getElementById('compassBtn').title = '북방향으로 맞추기 / 두 번 누르면 회전 잠금';
-  } else if (northSnapped) {
-    // 2번째 클릭: 회전 잠금
+    document.getElementById('compassBtn').title = '북방향 고정 (한 번 더 누르면 잠금 해제)';
+  } else {
+    // 북방향으로 회전 후 잠금
+    view.animate({ rotation: 0, duration: 300 });
     rotationLocked = true;
-    northSnapped = false;
     vmap.getInteractions().forEach(i => {
       if (i instanceof ol.interaction.DragRotate || i instanceof ol.interaction.PinchRotate)
         i.setActive(false);
     });
     document.getElementById('compassBtn').classList.add('locked');
     document.getElementById('compassBtn').title = '회전 잠금 중 (한 번 더 누르면 해제)';
-  } else {
-    // 1번째 클릭: 항상 북방향으로 정렬
-    view.animate({ rotation: 0, duration: 300 });
-    northSnapped = true;
   }
 };
+
+/* ════════════════════════════════
+   지도 종류 변경 (VWorld)
+════════════════════════════════ */
+function changeVWorldMapType(value) {
+  if (!vmap) return;
+  try { vmap.setBasemapType(vw.ol3.BasemapType[value]); } catch(e) { console.warn('지도 유형 변경 오류', e); }
+}
 
 /* ════════════════════════════════
    단축키
