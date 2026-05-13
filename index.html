@@ -576,14 +576,11 @@ window.onload = () => {
   }
 
   let exitRequested = false;
-  let undoLocked = false; // 연속 빠른 뒤로가기 이중 처리 방지
 
   function handlePopstate() {
-    if (undoLocked || exitRequested) return;
-    undoLocked = true;
-    setTimeout(() => { undoLocked = false; }, 250); // 250ms 내 재입력 차단
+    if (exitRequested) return;
 
-    // 항상 먼저 상태 추가 (버퍼 유지 = 앱 종료 방지)
+    // 항상 먼저 상태 추가 (빠른 연속 뒤로가기에도 버퍼 유지 = 앱 종료 방지)
     window.history.pushState({ page: 'map' }, null, '');
 
     if (drawing) {
@@ -1538,23 +1535,40 @@ function fitPts(pts) {
 
 /* ════════════════════════════════
    나침반 / 회전 잠금 (2-state)
-   1번째 클릭: 북방향 정렬 + 잠금
+   1번째 클릭: 북방향으로 고정
    2번째 클릭: 잠금 해제
+   ※ change:rotation 리스너(initMap 내)가 rotationLocked 시 rotation을 0으로 강제
 ════════════════════════════════ */
 let rotationLocked = false;
+
+/* 회전 인터랙션 활성/비활성 헬퍼 */
+function setRotationInteractions(enabled) {
+  if (!vmap) return;
+  vmap.getInteractions().forEach(i => {
+    // PinchRotate, DragRotate, DragRotateAndZoom 모두 처리
+    const name = i.constructor && i.constructor.name ? i.constructor.name : '';
+    if (name.indexOf('Rotate') !== -1 ||
+        (typeof ol.interaction.PinchRotate !== 'undefined' && i instanceof ol.interaction.PinchRotate) ||
+        (typeof ol.interaction.DragRotate  !== 'undefined' && i instanceof ol.interaction.DragRotate)) {
+      i.setActive(enabled);
+    }
+  });
+}
 
 document.getElementById('compassBtn').onclick = () => {
   if (!vmap) return;
   const view = vmap.getView();
   if (rotationLocked) {
-    // 잠금 해제: 다시 자유롭게 회전 가능
+    // ── 잠금 해제 ──
     rotationLocked = false;
+    setRotationInteractions(true);  // 회전 인터랙션 복원
     document.getElementById('compassBtn').classList.remove('locked');
     document.getElementById('compassBtn').title = '북방향 고정';
   } else {
-    // 북방향으로 애니메이션 후 잠금 (change:rotation 리스너가 강제 고정)
-    view.animate({ rotation: 0, duration: 400 });
+    // ── 잠금: flag 먼저 설정 → 북방향 복귀 → 인터랙션 비활성 ──
     rotationLocked = true;
+    view.setRotation(0);            // 즉시 북방향 (animate 불안정)
+    setRotationInteractions(false); // 핀치/드래그 회전 차단
     document.getElementById('compassBtn').classList.add('locked');
     document.getElementById('compassBtn').title = '회전 잠금 중 (한 번 더 누르면 해제)';
   }
