@@ -497,7 +497,8 @@ function initMap(lat, lng) {
     interactionDensity : vw.ol3.DensityType.FULL,
     controlsAutoArrange: true,
     homePosition       : vw.ol3.CameraPosition,
-    initPosition       : vw.ol3.CameraPosition
+    initPosition       : vw.ol3.CameraPosition,
+    pixelRatio         : 1   // 고DPI 기기에서 2~3x 타일 요청 방지 → 로딩 속도 개선
   };
   vmap = new vw.ol3.Map('vmap', vw.ol3.MapOptions);
 
@@ -587,37 +588,36 @@ function initMap(lat, lng) {
 }
 
 
+let _exitRequested = false;
+
 window.onload = () => {
-  // 뒤로가기 버퍼: 초기 20개
-  for (let i = 0; i < 20; i++) {
-    window.history.pushState({ page: 'map' }, null, '');
-  }
+  // 초기 버퍼 20개 — 모두 고유 ID로 push (동일 state 중복 시 Android가 묶어버리는 문제 방지)
+  for (let i = 0; i < 20; i++) preventBack();
 
-  let exitRequested = false;
-
-  function handlePopstate() {
-    if (exitRequested) return;
-
-    // 소비된 스택 1개 즉시 보충 (점 추가 시 preventBack()이 미리 쌓아뒀으므로 1개면 충분)
-    window.history.pushState({ page: 'map' }, null, '');
+  // window.onpopstate 방식 사용 (잘되는거 파일과 동일 패턴)
+  window.onpopstate = () => {
+    if (_exitRequested) return;
 
     if (drawing) {
-      // 선그리기 모드: 마지막 점 삭제
+      // 선그리기 모드: 마지막 점 삭제 → 소비된 스택 1개 보충
       if (drawCoords.length > 0) {
         drawCoords.pop();
-        refreshDraw(); // 내부에서 clearAllGuide 또는 updateDistDisplay 호출
+        refreshDraw();
       }
-      // drawCoords가 0이 되어도 drawing 모드 유지 (앱 종료 안 함)
+      // drawCoords가 0이어도 drawing 모드 유지 (앱 종료 안 함)
+      window.history.pushState({ page: 'map' }, null, '');
     } else {
       // 일반 모드: 앱 종료 확인
       if (confirm('앱을 종료하시겠습니까?')) {
-        exitRequested = true;
+        _exitRequested = true;
         window.close();
         setTimeout(() => window.history.go(-window.history.length), 150);
+      } else {
+        // 취소 시 스택 복구
+        window.history.pushState({ page: 'map' }, null, '');
       }
     }
-  }
-  window.addEventListener('popstate', handlePopstate);
+  };
 
   // iOS 배너
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
