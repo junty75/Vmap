@@ -192,8 +192,8 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 <!-- 지도종류 선택 -->
 <div id="mapTypeBox">
   <select id="mapTypeSelect" onchange="changeVWorldMapType(this.value)" title="지도 종류">
-    <option value="PHOTO_HYBRID" selected>위성+지도</option>
-    <option value="PHOTO">위성사진</option>
+    <option value="PHOTO" selected>항공사진</option>
+    <option value="PHOTO_HYBRID">항공+지도</option>
     <option value="GRAPHIC">일반지도</option>
     <option value="GRAY">회색지도</option>
   </select>
@@ -475,7 +475,7 @@ function initMap(lat, lng) {
   vw.ol3.CameraPosition.center = ol.proj.transform([lng, lat], 'EPSG:4326', 'EPSG:3857');
   vw.ol3.CameraPosition.zoom   = 14;
   vw.ol3.MapOptions = {
-    basemapType        : vw.ol3.BasemapType.PHOTO_HYBRID,
+    basemapType        : vw.ol3.BasemapType.PHOTO,
     controlDensity     : vw.ol3.DensityType.EMPTY,
     interactionDensity : vw.ol3.DensityType.FULL,
     controlsAutoArrange: true,
@@ -494,6 +494,11 @@ function initMap(lat, lng) {
   vmap.getViewport().addEventListener('contextmenu', mapRightClick);
   vmap.getView().on('change:rotation', () => {
     const rot = vmap.getView().getRotation();
+    // 회전 잠금 중이면 즉시 북방향으로 강제
+    if (rotationLocked && Math.abs(rot) > 0.001) {
+      vmap.getView().setRotation(0);
+      return;
+    }
     const deg = -(rot * 180 / Math.PI);
     document.getElementById('compassNeedle').style.transform = `rotate(${deg}deg)`;
   });
@@ -565,29 +570,31 @@ function initMap(lat, lng) {
 
 
 window.onload = () => {
-  // 연속 뒤로가기 대응: 버퍼 10개로 시작
-  for (let i = 0; i < 10; i++) {
+  // 뒤로가기 버퍼: 초기 20개
+  for (let i = 0; i < 20; i++) {
     window.history.pushState({ page: 'map' }, null, '');
   }
 
   let exitRequested = false;
+  let undoLocked = false; // 연속 빠른 뒤로가기 이중 처리 방지
+
   function handlePopstate() {
-    if (exitRequested) return;
+    if (undoLocked || exitRequested) return;
+    undoLocked = true;
+    setTimeout(() => { undoLocked = false; }, 250); // 250ms 내 재입력 차단
+
+    // 항상 먼저 상태 추가 (버퍼 유지 = 앱 종료 방지)
+    window.history.pushState({ page: 'map' }, null, '');
+
     if (drawing) {
-      // 선그리기 모드: 버퍼 3개 먼저 확보 후 점 취소 (연속 빠른 뒤로가기 대응)
-      window.history.pushState({ page: 'map' }, null, '');
-      window.history.pushState({ page: 'map' }, null, '');
-      window.history.pushState({ page: 'map' }, null, '');
+      // 선그리기 모드: 마지막 점 삭제
       if (drawCoords.length > 0) {
         drawCoords.pop();
-        refreshDraw();
-        clearGuide();
-        if (drawCoords.length > 0) updateDistDisplay();
-        else clearAllGuide();
+        refreshDraw(); // 내부에서 clearAllGuide 또는 updateDistDisplay 호출
       }
+      // drawCoords가 0이 되어도 drawing 모드 유지 (앱 종료 안 함)
     } else {
-      // 일반 모드: 종료 확인 전에 버퍼 1개 확보
-      window.history.pushState({ page: 'map' }, null, '');
+      // 일반 모드: 앱 종료 확인
       if (confirm('앱을 종료하시겠습니까?')) {
         exitRequested = true;
         window.close();
@@ -668,9 +675,8 @@ function mapClick(evt) {
 }
 
 function mapMove(evt) {
-  if (!drawing || !drawCoords.length) { clearGuide(); return; }
-  updateGuide(drawCoords[drawCoords.length - 1], evt.coordinate);
-  updateGuideDistDisplay(evt.coordinate);
+  // 미리보기 점선 없이 확정된 거리만 표시 (가이드 정리만)
+  clearGuide();
 }
 document.addEventListener('mousemove', e => { lastCX = e.clientX; lastCY = e.clientY; }, { passive: true });
 
@@ -859,24 +865,27 @@ function endDraw() {
 }
 
 function refreshDraw() {
-  if (!drawLayer || drawCoords.length < 1) return;
-  const src = drawLayer.getSource(); src.clear();
-  if (drawCoords.length === 1) {
+  if (!drawLayer) return;
+  const src = drawLayer.getSource();
+  src.clear(); // 점이 없어도 항상 먼저 지움
+  if (drawCoords.length >= 2) {
+    const f = new ol.Feature(new ol.geom.LineString(drawCoords));
+    f.setStyle(lineSt('#FF0000', 3));
+    src.addFeature(f);
+  } else if (drawCoords.length === 1) {
     const f = new ol.Feature(new ol.geom.Point(drawCoords[0]));
     f.setStyle(new ol.style.Style({
       image: new ol.style.Circle({
-        radius: 3,
+        radius: 5,
         fill: new ol.style.Fill({ color: '#FF0000' }),
-        stroke: new ol.style.Stroke({ color: '#FF0000', width: 1 })
+        stroke: new ol.style.Stroke({ color: 'white', width: 1.5 })
       })
     }));
     src.addFeature(f);
-  } else {
-    const f = new ol.Feature(new ol.geom.LineString(drawCoords));
-    f.setStyle(lineSt('#FF0000', 3)); src.addFeature(f);
   }
   drawLayer._coords = drawCoords.slice();
-  updateDistDisplay();
+  if (drawCoords.length > 0) updateDistDisplay();
+  else clearAllGuide(); // 점이 0개면 거리 표시도 제거
 }
 
 // 점 확정 후 거리 표시 (📍 총 거리)
@@ -1538,22 +1547,14 @@ document.getElementById('compassBtn').onclick = () => {
   if (!vmap) return;
   const view = vmap.getView();
   if (rotationLocked) {
-    // 잠금 해제
+    // 잠금 해제: 다시 자유롭게 회전 가능
     rotationLocked = false;
-    vmap.getInteractions().forEach(i => {
-      if (i instanceof ol.interaction.DragRotate || i instanceof ol.interaction.PinchRotate)
-        i.setActive(true);
-    });
     document.getElementById('compassBtn').classList.remove('locked');
-    document.getElementById('compassBtn').title = '북방향 고정 (한 번 더 누르면 잠금 해제)';
+    document.getElementById('compassBtn').title = '북방향 고정';
   } else {
-    // 북방향으로 회전 후 잠금
-    view.animate({ rotation: 0, duration: 300 });
+    // 북방향으로 애니메이션 후 잠금 (change:rotation 리스너가 강제 고정)
+    view.animate({ rotation: 0, duration: 400 });
     rotationLocked = true;
-    vmap.getInteractions().forEach(i => {
-      if (i instanceof ol.interaction.DragRotate || i instanceof ol.interaction.PinchRotate)
-        i.setActive(false);
-    });
     document.getElementById('compassBtn').classList.add('locked');
     document.getElementById('compassBtn').title = '회전 잠금 중 (한 번 더 누르면 해제)';
   }
@@ -1577,7 +1578,8 @@ document.addEventListener('keydown', e => {
   if (e.altKey) { e.preventDefault(); toggleDraw(); return; }
   if (e.ctrlKey && e.key.toLowerCase()==='s') { e.preventDefault(); exportKMZ(); return; }
   if (drawing && (e.key==='Backspace'||(e.ctrlKey&&e.key==='z'))) {
-    e.preventDefault(); drawCoords.pop(); refreshDraw(); if (!drawCoords.length) clearAllGuide();
+    e.preventDefault();
+    if (drawCoords.length > 0) { drawCoords.pop(); refreshDraw(); } // refreshDraw가 내부에서 clearAllGuide 처리
   }
 });
 </script>
