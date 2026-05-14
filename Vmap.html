@@ -117,9 +117,9 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
     <option value="visible">현재 영역</option>
   </select>
   <select id="photoQuality">
-    <option value="200">200KB↓</option>
+    <option value="200" selected>200KB↓</option>
     <option value="300">300KB↓</option>
-    <option value="500" selected>500KB↓</option>
+    <option value="500">500KB↓</option>
     <option value="800">800KB↓</option>
     <option value="1024">1MB↓</option>
     <option value="0">원본</option>
@@ -1197,22 +1197,23 @@ function loadHTM(file) {
     // ① 폴리라인: var linePath1=[...]; var polygonPath1=[...];
     const lineBlocks=[...html.matchAll(/var\s+(linePath\d+|polygonPath\d+)\s*=\s*\[([\s\S]*?)\];/g)];
     lineBlocks.forEach(m=>{
-      const cs=[...m[2].matchAll(/new\s+kakao\.maps\.LatLng\(([\d.]+),([\d.]+)\)/g)]
+      // kakao.maps.LatLng 및 daum.maps.LatLng 모두 지원
+      const cs=[...m[2].matchAll(/new\s+(?:kakao|daum)\.maps\.LatLng\(([\d.]+),([\d.]+)\)/g)]
         .map(c=>{const la=parseFloat(c[1]),lo=parseFloat(c[2]);return(!isNaN(la)&&!isNaN(lo))?toMerc(lo,la):null;})
         .filter(Boolean);
       if(cs.length>=2){const lyr=mkLineLyr(cs,'#FF00FF',3);addLyr(lyr);polylines.push(lyr);pts.push(...cs);}
     });
-    // ② 마커: content:'...' + latlng: new kakao.maps.LatLng(lat,lng)
-    const posM=[...html.matchAll(/content:\s*'([^']*)'[\s\S]*?latlng:\s*new\s+kakao\.maps\.LatLng\(([\d.]+),([\d.]+)\)/g)];
+    // ② 마커: content:'...' + latlng: new kakao/daum.maps.LatLng(lat,lng)
+    const posM=[...html.matchAll(/content:\s*'([^']*)'[\s\S]*?latlng:\s*new\s+(?:kakao|daum)\.maps\.LatLng\(([\d.]+),([\d.]+)\)/g)];
     posM.forEach(m=>{
       const rawName=m[1].replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi,'').replace(/<[^>]+>/g,'').trim()||'마커';
       const la=parseFloat(m[2]),lo=parseFloat(m[3]);
       if(isNaN(la)||isNaN(lo))return;
       const c=toMerc(lo,la); addMarker(c,rawName,''); pts.push(c);
     });
-    // ③ 방식2: new kakao.maps.Marker({ position: new kakao.maps.LatLng(lat,lng) })
+    // ③ 방식2: new kakao/daum.maps.Marker({ position: new kakao/daum.maps.LatLng(lat,lng) })
     if(posM.length===0){
-      const mkM=[...html.matchAll(/new\s+kakao\.maps\.Marker\s*\(\s*\{[^}]*position:\s*new\s+kakao\.maps\.LatLng\(([\d.]+),([\d.]+)\)/g)];
+      const mkM=[...html.matchAll(/new\s+(?:kakao|daum)\.maps\.Marker\s*\(\s*\{[^}]*position:\s*new\s+(?:kakao|daum)\.maps\.LatLng\(([\d.]+),([\d.]+)\)/g)];
       mkM.forEach((m,i)=>{
         const la=parseFloat(m[1]),lo=parseFloat(m[2]);
         if(isNaN(la)||isNaN(lo))return;
@@ -1417,7 +1418,7 @@ async function exportKMZ(vis=false){
 ════════════════════════════════════ */
 function compressImage(src){
   return new Promise(res=>{
-    const qv=parseInt(document.getElementById('photoQuality')?.value||'500');
+    const qv=parseInt(document.getElementById('photoQuality')?.value||'200');
     if(qv===0){res(src);return;}
     const img=new Image();
     img.onload=()=>{
@@ -1433,10 +1434,14 @@ function compressImage(src){
 }
 function downloadPhotoWithGPS(imgSrc,name,lat,lng){
   return new Promise(res=>{
-    const qv=parseInt(document.getElementById('photoQuality')?.value||'500');
+    const qv=parseInt(document.getElementById('photoQuality')?.value||'200');
     const toDMS=v=>{const a=Math.abs(v),d=Math.floor(a),m=Math.floor((a-d)*60),s=(a-d-m/60)*3600;return[[d,1],[m,1],[Math.round(s*100),100]];};
     const addGPS=dataUrl=>{
-      try{let ex={};try{ex=piexif.load(dataUrl);}catch(e){}
+      // ★ 원본(imgSrc)에서 EXIF 읽기 — canvas 압축 시 EXIF 전체가 사라지므로
+      //   날짜·방향 등 모든 EXIF를 원본에서 가져온 뒤 GPS만 갱신
+      try{let ex={};try{ex=piexif.load(imgSrc);}catch(e){}
+        if(ex['0th']){delete ex['0th'][piexif.ImageIFD.UserComment];delete ex['0th'][piexif.ImageIFD.ImageDescription];}
+        if(ex['Exif'])delete ex['Exif'][piexif.ExifIFD.UserComment];
         if(!ex.GPS)ex.GPS={};
         ex.GPS[piexif.GPSIFD.GPSLatitudeRef]=lat>=0?'N':'S';
         ex.GPS[piexif.GPSIFD.GPSLatitude]=toDMS(lat);
