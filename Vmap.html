@@ -1428,6 +1428,14 @@ function compressImage(src){
       cv.getContext('2d').drawImage(img,0,0,w,h);
       let q=0.85,r=cv.toDataURL('image/jpeg',q);
       while(r.length*.75>T&&q>0.1){q=Math.round((q-.05)*100)/100;r=cv.toDataURL('image/jpeg',q);}
+      // ★ 원본 EXIF 복원 — canvas는 EXIF를 모두 버리므로
+      //   촬영 날짜·카메라 정보·GPS 등을 원본에서 읽어 압축 결과에 삽입
+      try{
+        const ex=piexif.load(src);
+        if(ex['0th']){delete ex['0th'][piexif.ImageIFD.UserComment];delete ex['0th'][piexif.ImageIFD.ImageDescription];}
+        if(ex['Exif'])delete ex['Exif'][piexif.ExifIFD.UserComment];
+        r=piexif.insert(piexif.dump(ex),r);
+      }catch(e){}
       res(r);
     };img.src=src;
   });
