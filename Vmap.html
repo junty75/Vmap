@@ -1385,12 +1385,14 @@ async function exportKMZ(vis=false){
   const fname=prompt('KMZ 파일명', await defName(ms));if(!fname)return;
   const zip=new JSZip();
   const pFiles=new Array(ms.length).fill(null);
-  let pc=0;
+  const usedFn=new Set();
   for(let i=0;i<ms.length;i++){
     const m=ms[i];
     if(m.isPhoto&&m.imgSrc){
-      pc++;const safe=(m.name||'photo').replace(/[^\w가-힣\-_.]/g,'_');
-      const fn=`${pc}_${safe}.jpg`;pFiles[i]=fn;
+      let base=(m.name||'photo').replace(/[\/\\:*?"<>|]/g,'_').replace(/\.jpg$/i,'');
+      let fn=base+'.jpg';let sx=1;
+      while(usedFn.has(fn)){fn=`${base}_${sx++}.jpg`;}
+      usedFn.add(fn);pFiles[i]=fn;
       zip.file(`files/${fn}`,(await compressImage(m.imgSrc)).split(',')[1],{base64:true});
     }
   }
