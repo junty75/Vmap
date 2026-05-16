@@ -11,15 +11,6 @@
 <title>V월드 KMZ 뷰어</title>
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<!-- 뒤로가기로 앱이 종료되지 않도록 VWorld 로딩보다 먼저 버퍼 설치 -->
-<!-- addEventListener 사용: window.onpopstate=null 로 덮어쓰는 외부 라이브러리에 영향 안 받음 -->
-<script>
-history.replaceState({k:0},'','');
-history.pushState({k:1},'','');
-history.pushState({k:2},'','');
-function _earlyBackHandler(){ history.forward(); }
-window.addEventListener('popstate', _earlyBackHandler);
-</script>
 <script src="https://map.vworld.kr/js/vworldMapInit.js.do?version=2.0&apiKey=55FD7275-A6F5-3B69-9966-CD4BFA2FD35F"></script>
 <script src="https://cdn.jsdelivr.net/npm/piexifjs"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
@@ -605,23 +596,42 @@ function initMap(lat, lng, zoom) {
 }
 
 
-// 뒤로가기 = 절대 앱 종료 안 함. 항상 forward()로 복귀.
-// 선그리기 중: 점 삭제 또는 모드 종료
-// addEventListener 사용: window.onpopstate 방식은 외부 라이브러리가 덮어쓸 수 있어서 불안정함
+let _exitRequested = false;
+
 let _ignoreNextPop = false;
 
-window.removeEventListener('popstate', _earlyBackHandler); // 초기 임시 핸들러 제거
-window.addEventListener('popstate', function() {
-  if (_ignoreNextPop) { _ignoreNextPop = false; return; }
-  if (drawing) {
-    if (drawCoords.length > 0) { drawCoords.pop(); refreshDraw(); }
-    else { endDraw(); }
-  }
-  _ignoreNextPop = true;
-  window.history.forward();
-});
-
 window.onload = () => {
+  // Android PWA에서는 popstate 안의 pushState가 시스템 뒤로가기 스택에 등록되지 않음.
+  // 그래서 push 대신, 시작 시 만든 영구 버퍼 2개(E1,E2) 사이를 forward()로 왕복시킨다.
+  window.history.replaceState({ page: 'map', k: 0 }, null, '');
+  window.history.pushState({ page: 'map', k: 1 }, null, '');
+  window.history.pushState({ page: 'map', k: 2 }, null, '');
+
+  window.onpopstate = (e) => {
+    if (_exitRequested) return;
+    // forward()로 되돌아오며 발생한 popstate는 무시
+    if (_ignoreNextPop) { _ignoreNextPop = false; return; }
+
+    if (drawing) {
+      // 선그리기 모드: 마지막 점 삭제 후, 버퍼 상단으로 복귀 (스택 소모 없음)
+      if (drawCoords.length > 0) {
+        drawCoords.pop();
+        refreshDraw();
+      }
+      _ignoreNextPop = true;
+      window.history.forward();
+    } else {
+      // 일반 모드: 앱 종료 확인
+      if (confirm('앱을 종료하시겠습니까?')) {
+        _exitRequested = true;
+        window.history.back();   // 영구 버퍼를 빠져나가 앱 종료
+      } else {
+        _ignoreNextPop = true;
+        window.history.forward();
+      }
+    }
+  };
+
   // iOS 배너
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
   const isStandalone = window.navigator.standalone === true;
@@ -1640,11 +1650,6 @@ document.addEventListener('keydown', e => {
     if (drawCoords.length > 0) { drawCoords.pop(); refreshDraw(); } // refreshDraw가 내부에서 clearAllGuide 처리
   }
 });
-</script>
-<script>
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').catch(() => {});
-}
 </script>
 </body>
 </html>
