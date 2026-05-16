@@ -502,6 +502,9 @@ function initMap(lat, lng) {
     if (i instanceof ol.interaction.DoubleClickZoom) i.setActive(false);
   });
 
+  // VWorld가 베이스 레이어를 비동기로 추가하므로 여러 번 정리 시도
+  [200, 800, 2000].forEach(t => setTimeout(prunePhotoBaseLayers, t));
+
   vmap.on('click', mapClick);
   vmap.on('pointermove', mapMove);
   vmap.getViewport().addEventListener('contextmenu', mapRightClick);
@@ -584,29 +587,36 @@ function initMap(lat, lng) {
 
 let _exitRequested = false;
 
+let _ignoreNextPop = false;
+
 window.onload = () => {
-  // replaceState로 초기 항목에 상태 부여 → Android PWA에서 popstate가 항상 발동되도록
-  window.history.replaceState({ page: 'map' }, null, '');
-  window.history.pushState({ page: 'map' }, null, '');
+  // Android PWA에서는 popstate 안의 pushState가 시스템 뒤로가기 스택에 등록되지 않음.
+  // 그래서 push 대신, 시작 시 만든 영구 버퍼 2개(E1,E2) 사이를 forward()로 왕복시킨다.
+  window.history.replaceState({ page: 'map', k: 0 }, null, '');
+  window.history.pushState({ page: 'map', k: 1 }, null, '');
+  window.history.pushState({ page: 'map', k: 2 }, null, '');
 
   window.onpopstate = (e) => {
     if (_exitRequested) return;
+    // forward()로 되돌아오며 발생한 popstate는 무시
+    if (_ignoreNextPop) { _ignoreNextPop = false; return; }
 
     if (drawing) {
-      // pushState를 가장 먼저 실행하여 히스토리 깊이를 즉시 확보 (Android PWA 앱 종료 방지)
-      window.history.pushState({ page: 'map' }, null, '');
-      // 선그리기 모드: 마지막 점 삭제
+      // 선그리기 모드: 마지막 점 삭제 후, 버퍼 상단으로 복귀 (스택 소모 없음)
       if (drawCoords.length > 0) {
         drawCoords.pop();
         refreshDraw();
       }
+      _ignoreNextPop = true;
+      window.history.forward();
     } else {
       // 일반 모드: 앱 종료 확인
       if (confirm('앱을 종료하시겠습니까?')) {
         _exitRequested = true;
-        window.history.back();
+        window.history.back();   // 영구 버퍼를 빠져나가 앱 종료
       } else {
-        window.history.pushState({ page: 'map' }, null, '');
+        _ignoreNextPop = true;
+        window.history.forward();
       }
     }
   };
@@ -1595,6 +1605,30 @@ document.getElementById('compassBtn').onclick = () => {
 function changeVWorldMapType(value) {
   if (!vmap) return;
   try { vmap.setBasemapType(vw.ol3.BasemapType[value]); } catch(e) { console.warn('지도 유형 변경 오류', e); }
+  if (value === 'PHOTO') prunePhotoBaseLayers();
+}
+
+// 항공사진 모드일 때 함께 깔리는 일반지도/하이브리드 베이스 타일을 끈다 (불필요한 타일 요청 제거 → 가벼움).
+// VWorld 베이스 타일 URL의 종류명만 보고 판단. 위성(Satellite)만 남기고 Base/Hybrid/gray류는 숨김.
+// 마커/선(벡터)·지적도(/req/wms)는 건드리지 않음. 실패해도 지도에 영향 없도록 방어적 처리.
+function prunePhotoBaseLayers() {
+  if (!vmap) return;
+  try {
+    vmap.getLayers().getArray().forEach(layer => {
+      if (!(layer instanceof ol.layer.Tile)) return;
+      const src = layer.getSource && layer.getSource();
+      if (!src) return;
+      let urls = [];
+      try { if (src.getUrls) urls = src.getUrls() || []; else if (src.getUrl) urls = [src.getUrl()].filter(Boolean); } catch(_) {}
+      const u = urls.join(' ').toLowerCase();
+      if (!u) return;
+      if (u.indexOf('/req/wms') !== -1) return;            // 지적도(WMS) 제외
+      if (/\/(satellite|photo)\//.test(u)) return;          // 항공사진 레이어는 유지
+      if (/\/(base|hybrid|gray|grey|midnight)\//.test(u)) { // 일반/하이브리드/회색 베이스만 숨김
+        layer.setVisible(false);
+      }
+    });
+  } catch(e) { console.warn('베이스 레이어 정리 건너뜀', e); }
 }
 
 /* ════════════════════════════════

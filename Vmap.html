@@ -172,7 +172,8 @@ function initMap(lat, lng) {
     interactionDensity : vw.ol3.DensityType.FULL,
     controlsAutoArrange: true,
     homePosition       : vw.ol3.CameraPosition,
-    initPosition       : vw.ol3.CameraPosition
+    initPosition       : vw.ol3.CameraPosition,
+    pixelRatio         : 1   // 고DPI 기기에서 2~3x 타일 요청 방지 → 로딩 속도 개선
   };
   vmap = new vw.ol3.Map('vmap', vw.ol3.MapOptions);
   vmap.on('click',       mapClick);
