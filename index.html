@@ -12,13 +12,14 @@
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icon-192.png">
 <!-- 뒤로가기로 앱이 종료되지 않도록 VWorld 로딩보다 먼저 버퍼 설치 -->
-<!-- addEventListener 사용: window.onpopstate=null 로 덮어쓰는 외부 라이브러리에 영향 안 받음 -->
+<!-- URL을 변경하지 않고 history 항목만 쌓음 → manifest start_url 매칭 유지 → WebAPK 설치 가능 -->
 <script>
-// hash URL을 사용해야 Android Chrome PWA의 C++ 네비게이션 스택에 실제 항목으로 등록됨
-// 빈 문자열('')로 pushState하면 JS history에만 존재 → canGoBack()=false → 시스템 뒤로가기가 앱 종료
-history.replaceState({k:0},'','#_b0');
-history.pushState({k:1},'','#_b1');
-history.pushState({k:2},'','#_b2');
+(function(){
+  var _p = location.pathname + location.search;
+  history.replaceState({k:0}, '', _p);
+  history.pushState({k:1}, '', _p);
+  history.pushState({k:2}, '', _p);
+})();
 function _earlyBackHandler(){ history.forward(); }
 window.addEventListener('popstate', _earlyBackHandler);
 </script>
@@ -608,34 +609,27 @@ function initMap(lat, lng, zoom) {
 
 
 let _ignoreNextPop = false;
-let _backN = 0; // 버퍼 인덱스 (hash 고유값용)
 
-// hash pushState로 버퍼 보충 (hash 변경은 Android C++ nav 스택에 실제 등록됨)
-function _pushBackBuf(n) {
-  try { history.pushState({k:n}, '', '#_b' + n); } catch(e) {}
-}
-
-window.removeEventListener('popstate', _earlyBackHandler); // 초기 임시 핸들러 제거
+// 초기 임시 핸들러 제거 후 메인 핸들러 등록
+window.removeEventListener('popstate', _earlyBackHandler);
 window.addEventListener('popstate', function() {
   if (_ignoreNextPop) { _ignoreNextPop = false; return; }
+  // 선그리기 모드: 점 삭제 or 모드 종료
   if (drawing) {
-    // 선그리기 모드: 점 삭제 / 모드 종료 후 forward()로 버퍼 복귀
     if (drawCoords.length > 0) { drawCoords.pop(); refreshDraw(); }
     else { endDraw(); }
-    _ignoreNextPop = true;
-    window.history.forward();
-  } else {
-    // 지도 보기: 새 hash 항목 push → Android C++ nav 스택에 등록 → 다음 뒤로가기도 차단
-    _backN++;
-    _pushBackBuf(_backN);
   }
+  // 모드에 관계없이 forward()로 버퍼 복귀 → pushState-in-popstate 없이 앱 종료 차단
+  _ignoreNextPop = true;
+  window.history.forward();
 });
 
 window.onload = () => {
-  // VWorld 등 외부 스크립트가 hash를 바꾸거나 history를 건드렸을 경우 버퍼 재보충
-  if (!location.hash.startsWith('#_b')) {
-    _pushBackBuf(++_backN);
-    _pushBackBuf(++_backN);
+  // VWorld 등 외부 스크립트가 history state를 덮어썼을 경우 버퍼 재보충
+  if (!history.state || history.state.k === undefined) {
+    var _p = location.pathname + location.search;
+    history.pushState({k:'a'}, '', _p);
+    history.pushState({k:'b'}, '', _p);
   }
 
   // iOS 배너
