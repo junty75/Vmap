@@ -600,7 +600,9 @@ let _exitRequested = false;
 
 let _ignoreNextPop = false;
 
-window.onload = () => {
+// ⚠️ 뒤로가기 트랩은 onload(지도 로딩 완료) 를 기다리지 않고 스크립트 파싱 즉시 설치한다.
+// 지도가 느리게 떠도 그 사이 뒤로가기를 누르면 트랩 없이 앱이 바로 닫히던 문제 해결.
+(function setupBackTrap() {
   // Android PWA에서는 popstate 안의 pushState가 시스템 뒤로가기 스택에 등록되지 않음.
   // 그래서 push 대신, 시작 시 만든 영구 버퍼 2개(E1,E2) 사이를 forward()로 왕복시킨다.
   window.history.replaceState({ page: 'map', k: 0 }, null, '');
@@ -628,18 +630,23 @@ window.onload = () => {
       }
     } else {
       // 일반 모드: 앱 종료 확인
-      if (confirm('앱을 종료하시겠습니까?')) {
+      if (confirm('앱을 종료하시겠습니까? (안 닫히면 뒤로가기 한 번 더)')) {
         _exitRequested = true;
-        // standalone PWA는 window.close()로 앱을 닫을 수 있음 (history.back()은 바닥에서 no-op)
+        // ① 지원 기기: standalone PWA는 window.close()로 즉시 닫힘
         window.close();
         setTimeout(() => { try { window.close(); } catch (_) {} }, 50);
+        // ② 미지원 기기 폴백: 시작 지점(E0)까지 내려보냄 → 트랩 해제 상태가 되어
+        //    사용자가 뒤로가기 한 번만 더 누르면 PWA가 정상 종료됨
+        window.history.back();
       } else {
         _ignoreNextPop = true;
         window.history.forward();
       }
     }
   };
+})();
 
+window.onload = () => {
   // iOS 배너
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
   const isStandalone = window.navigator.standalone === true;
