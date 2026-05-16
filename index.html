@@ -483,9 +483,9 @@ function scheduleAddrUpdate(overrideLng, overrideLat) {
 /* ════════════════════════════════
    지도 초기화
 ════════════════════════════════ */
-function initMap(lat, lng) {
+function initMap(lat, lng, zoom) {
   vw.ol3.CameraPosition.center = ol.proj.transform([lng, lat], 'EPSG:4326', 'EPSG:3857');
-  vw.ol3.CameraPosition.zoom   = 14;
+  vw.ol3.CameraPosition.zoom   = zoom || 14;
   vw.ol3.MapOptions = {
     basemapType        : vw.ol3.BasemapType.PHOTO,
     controlDensity     : vw.ol3.DensityType.EMPTY,
@@ -580,6 +580,17 @@ function initMap(lat, lng) {
   document.getElementById('zoomInBtn').onclick  = () => vmap.getView().setZoom((vmap.getView().getZoom()||14) + 1);
   document.getElementById('zoomOutBtn').onclick = () => vmap.getView().setZoom((vmap.getView().getZoom()||14) - 1);
 
+  // 지도 이동/줌 변경 시 마지막 위치 저장
+  let _savePosTimer = null;
+  vmap.getView().on('change', () => {
+    clearTimeout(_savePosTimer);
+    _savePosTimer = setTimeout(() => {
+      const c = fromMerc(vmap.getView().getCenter());
+      const z = vmap.getView().getZoom();
+      if (c && z) localStorage.setItem('lastPos', JSON.stringify({ lng: c[0], lat: c[1], z }));
+    }, 500);
+  });
+
   // DB 복원
   loadKMZfromDB().then(file => { if (file) loadKMZ(file, true); });
 }
@@ -628,15 +639,9 @@ window.onload = () => {
     setTimeout(() => document.getElementById('installBanner').classList.add('show'), 2000);
   }
 
-  // 기본 좌표로 즉시 지도 표시 (GPS 대기 없이 빠른 초기화)
-  initMap(35.8242, 127.1480);
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      p => { if (vmap) vmap.getView().setCenter(toMerc(p.coords.longitude, p.coords.latitude)); },
-      () => {},
-      { timeout: 5000, maximumAge: 60000 }
-    );
-  }
+  // 마지막으로 보던 위치 복원, 없으면 기본 좌표
+  const _lp = (() => { try { return JSON.parse(localStorage.getItem('lastPos')); } catch(_) { return null; } })();
+  initMap(_lp ? _lp.lat : 35.6472, _lp ? _lp.lng : 127.5219, _lp ? _lp.z : 14);
 };
 
 document.getElementById('bannerClose').onclick = () => {
