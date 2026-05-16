@@ -608,8 +608,8 @@ window.onload = () => {
   window.history.pushState({ page: 'map', k: 2 }, null, '');
 
   window.onpopstate = (e) => {
-    // 종료 확인 후: 계속 back() 호출 → 스택 바닥 통과 → 앱 종료
-    if (_exitRequested) { window.history.back(); return; }
+    // 종료 확인 후 스트레이 popstate는 무시 (재트랩 방지)
+    if (_exitRequested) return;
     // forward()로 되돌아오며 발생한 popstate는 무시
     if (_ignoreNextPop) { _ignoreNextPop = false; return; }
 
@@ -630,7 +630,9 @@ window.onload = () => {
       // 일반 모드: 앱 종료 확인
       if (confirm('앱을 종료하시겠습니까?')) {
         _exitRequested = true;
-        window.history.back();  // E2→E1→E0, 그 다음 popstate에서 한 번 더 back → 앱 종료
+        // standalone PWA는 window.close()로 앱을 닫을 수 있음 (history.back()은 바닥에서 no-op)
+        window.close();
+        setTimeout(() => { try { window.close(); } catch (_) {} }, 50);
       } else {
         _ignoreNextPop = true;
         window.history.forward();
