@@ -10,7 +10,7 @@
 <script src="https://cdn.jsdelivr.net/npm/exifr@7/dist/full.umd.cjs"></script>
 <style>
 html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-serif;}
-#vmap{width:100%;height:100%;position:absolute;top:0;left:0;}
+#vmap{width:100%;height:100%;position:absolute;top:0;left:0;background:#222;}
 
 #search-form{
   position:absolute;top:10px;left:10px;z-index:2000;
@@ -275,12 +275,14 @@ function restoreDragPan() {
 }
 
 window.onload = () => {
-  if (!navigator.geolocation) { initMap(35.8242, 127.1480); return; }
-  navigator.geolocation.getCurrentPosition(
-    p  => initMap(p.coords.latitude, p.coords.longitude),
-    () => initMap(35.8242, 127.1480),
-    { timeout: 5000, maximumAge: 60000 }
-  );
+  initMap(35.8242, 127.1480);
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      p => { if (vmap) vmap.getView().setCenter(toMerc(p.coords.longitude, p.coords.latitude)); },
+      () => {},
+      { timeout: 5000, maximumAge: 60000 }
+    );
+  }
 };
 
 function chgMapType(t) {
