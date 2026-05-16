@@ -11,6 +11,7 @@
 <title>V월드 KMZ 뷰어</title>
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icon-192.png">
+<!-- 뒤로가기 차단: URL 변경 없이 history 항목만 추가 (WebAPK 설치 조건 유지) -->
 <script src="https://map.vworld.kr/js/vworldMapInit.js.do?version=2.0&apiKey=55FD7275-A6F5-3B69-9966-CD4BFA2FD35F"></script>
 <script src="https://cdn.jsdelivr.net/npm/piexifjs"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
@@ -596,41 +597,20 @@ function initMap(lat, lng, zoom) {
 }
 
 
-let _exitRequested = false;
-
-let _ignoreNextPop = false;
+// 뒤로가기 핸들러 (카카오 버전과 동일 방식 - pushState로 버퍼 보충)
+window.addEventListener('popstate', function() {
+  if (drawing) {
+    // 선그리기 모드: 점 삭제 or 모드 종료
+    if (drawCoords.length > 0) { drawCoords.pop(); refreshDraw(); }
+    else { endDraw(); }
+  }
+  // 모드에 관계없이 빈 항목 push → 앱 종료 방지
+  history.pushState({ page: 'map' }, '', '');
+});
 
 window.onload = () => {
-  // Android PWA에서는 popstate 안의 pushState가 시스템 뒤로가기 스택에 등록되지 않음.
-  // 그래서 push 대신, 시작 시 만든 영구 버퍼 2개(E1,E2) 사이를 forward()로 왕복시킨다.
-  window.history.replaceState({ page: 'map', k: 0 }, null, '');
-  window.history.pushState({ page: 'map', k: 1 }, null, '');
-  window.history.pushState({ page: 'map', k: 2 }, null, '');
-
-  window.onpopstate = (e) => {
-    if (_exitRequested) return;
-    // forward()로 되돌아오며 발생한 popstate는 무시
-    if (_ignoreNextPop) { _ignoreNextPop = false; return; }
-
-    if (drawing) {
-      // 선그리기 모드: 마지막 점 삭제 후, 버퍼 상단으로 복귀 (스택 소모 없음)
-      if (drawCoords.length > 0) {
-        drawCoords.pop();
-        refreshDraw();
-      }
-      _ignoreNextPop = true;
-      window.history.forward();
-    } else {
-      // 일반 모드: 앱 종료 확인
-      if (confirm('앱을 종료하시겠습니까?')) {
-        _exitRequested = true;
-        window.history.back();   // 영구 버퍼를 빠져나가 앱 종료
-      } else {
-        _ignoreNextPop = true;
-        window.history.forward();
-      }
-    }
-  };
+  // 뒤로가기 차단용 초기 history 항목 추가 (카카오 버전과 동일)
+  history.pushState({ page: 'map' }, '', '');
 
   // iOS 배너
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
@@ -1650,6 +1630,11 @@ document.addEventListener('keydown', e => {
     if (drawCoords.length > 0) { drawCoords.pop(); refreshDraw(); } // refreshDraw가 내부에서 clearAllGuide 처리
   }
 });
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
 </script>
 </body>
 </html>
