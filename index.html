@@ -11,6 +11,13 @@
 <title>V월드 KMZ 뷰어</title>
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icon-192.png">
+<!-- 뒤로가기로 앱이 종료되지 않도록 VWorld 로딩보다 먼저 버퍼 설치 -->
+<script>
+history.replaceState({k:0},'','');
+history.pushState({k:1},'','');
+history.pushState({k:2},'','');
+window.onpopstate = function(){ history.forward(); };
+</script>
 <script src="https://map.vworld.kr/js/vworldMapInit.js.do?version=2.0&apiKey=55FD7275-A6F5-3B69-9966-CD4BFA2FD35F"></script>
 <script src="https://cdn.jsdelivr.net/npm/piexifjs"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
@@ -596,29 +603,18 @@ function initMap(lat, lng, zoom) {
 }
 
 
-// 뒤로가기 트랩은 "선그리기 중"에만 작동한다.
-//  - 지도 보기 상태: 트랩 없음 → 뒤로가기 누르면 PWA가 정상 종료 (확인창 없음)
-//  - 선그리기 중: 점 삭제 / 모두 지워지면 선그리기 모드 종료
-// 버퍼는 startDraw()에서 생성하고 endDraw()에서 정리한다.
-// (pushState는 사용자 제스처인 startDraw 안에서 호출 → Android 시스템 뒤로가기에 정상 등록됨)
-let _trapOn = false;        // 선그리기 트랩 활성 여부
-let _ignoreNextPop = false; // forward() 복귀로 발생한 popstate 무시용
-let _bufN = 0;              // startDraw에서 push한 버퍼 개수
+// 뒤로가기 = 절대 앱 종료 안 함. 항상 forward()로 복귀.
+// 선그리기 중: 점 삭제 또는 모드 종료
+let _ignoreNextPop = false;
 
-window.onpopstate = (e) => {
-  if (!_trapOn) return;                                  // 지도 보기: 트랩 없음 → 시스템 뒤로가기로 앱 종료
-  if (_ignoreNextPop) { _ignoreNextPop = false; return; } // 버퍼 복귀용 popstate 무시
-
-  if (drawing && drawCoords.length > 0) {
-    // 점이 남아있으면 마지막 점 삭제 후 버퍼 상단으로 복귀 (스택 소모 없음)
-    drawCoords.pop();
-    refreshDraw();
-    _ignoreNextPop = true;
-    window.history.forward();
-  } else {
-    // 모든 점이 사라진 후 한 번 더 → 선그리기 모드 종료 (+ 버퍼 정리)
-    endDraw(true);
+window.onpopstate = () => {
+  if (_ignoreNextPop) { _ignoreNextPop = false; return; }
+  if (drawing) {
+    if (drawCoords.length > 0) { drawCoords.pop(); refreshDraw(); }
+    else { endDraw(); }
   }
+  _ignoreNextPop = true;
+  window.history.forward();
 };
 
 window.onload = () => {
@@ -856,10 +852,6 @@ function toggleDraw() { drawing ? endDraw() : startDraw(); }
 
 function startDraw() {
   if (drawing) return;
-  // 뒤로가기 트랩용 버퍼 2개 생성 (사용자 제스처 안이라 시스템 뒤로가기에 정상 등록됨)
-  _trapOn = true; _bufN = 2;
-  window.history.pushState({ draw: 1 }, '', '');
-  window.history.pushState({ draw: 2 }, '', '');
   drawing = true; drawCoords = [];
   drawLayer = mkLineLyr([], '#FF0000', 3);
   addLyr(drawLayer);
@@ -869,17 +861,8 @@ function startDraw() {
   // 거리표시는 첫 클릭 후 시작 (startDraw에서 표시 안 함)
 }
 
-function endDraw(fromBack) {
+function endDraw() {
   if (!drawing) return;
-  // 뒤로가기 트랩 버퍼 정리 → 지도 보기 상태에선 뒤로가기로 앱이 정상 종료되도록
-  if (_trapOn) {
-    _trapOn = false;
-    // 뒤로가기로 종료된 경우: 시스템 뒤로가기가 이미 1칸 소모함 → 1칸만 더 되감기
-    // 버튼으로 종료된 경우: 버퍼 상단에 있으므로 푸시한 개수(_bufN)만큼 되감기
-    const n = fromBack ? _bufN - 1 : _bufN;
-    _bufN = 0;
-    if (n > 0) window.history.go(-n);
-  }
   drawing = false; clearAllGuide();
   document.getElementById('vmap').classList.remove('draw-mode');
   document.getElementById('drawBtn').classList.remove('active');
