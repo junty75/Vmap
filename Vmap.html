@@ -1140,15 +1140,21 @@ function renderList(){
     const dotCls={photo:'dot-photo',marker:'dot-marker',track:'dot-track'}[item.type];
     nameTd.innerHTML=`<span class="type-dot ${dotCls}"></span><span class="item-name">${escHtml(item.name)}</span>`;
     nameTd.title=item.name;
-    nameTd.querySelector('.item-name').ondblclick=e=>{e.stopPropagation();startEditItem(tr,item,idx);};
 
     const addrTd=document.createElement('td');
     addrTd.textContent=item.address!==undefined?(shortAddr(item.address)||'…'):'…';
     addrTd.title=item.address||'';
     tr.append(nameTd,addrTd);
 
+    tr.ondblclick=e=>{
+      if(e.target.tagName==='INPUT')return;
+      e.stopPropagation();
+      startEditItem(tr,item,idx);
+    };
+
     tr.onmousedown=e=>{
       if(e.button!==0)return;
+      if(e.target.tagName==='INPUT')return;
       dragStartIdx=idx;isDragging=false;dragStartX=e.clientX;dragStartY=e.clientY;
       e.preventDefault();
     };
