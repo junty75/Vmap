@@ -1648,17 +1648,6 @@ function prunePhotoBaseLayers() {
    단축키
 ════════════════════════════════ */
 document.addEventListener('keydown', e => {
-  // 볼륨 키로 지도 확대/축소 (Android Chrome 등)
-  if (e.key === 'AudioVolumeUp' || e.keyCode === 175) {
-    e.preventDefault();
-    document.getElementById('zoomInBtn').click();
-    return;
-  }
-  if (e.key === 'AudioVolumeDown' || e.keyCode === 174) {
-    e.preventDefault();
-    document.getElementById('zoomOutBtn').click();
-    return;
-  }
   if (e.key === 'Escape') {
     if (markerPlacingMode) { document.getElementById('markerBtn').click(); return; }
   }
