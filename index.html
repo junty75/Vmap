@@ -1138,6 +1138,12 @@ function closeAllPopups() {
   markers.forEach(m => { if (m.ov) { vmap.removeOverlay(m.ov); m.ov = null; } });
 }
 
+// 팝업 외부 클릭 시 닫기
+// OL stopEvent:true가 버블링을 차단하므로 document 캡처 단계에서 처리
+document.addEventListener('pointerdown', (e) => {
+  if (!e.target.closest('.mpopup')) closeAllPopups();
+}, true);
+
 /* ════════════════════════════════
    역지오코딩
 ════════════════════════════════ */
