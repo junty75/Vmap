@@ -1107,7 +1107,10 @@ function addPhotoMarker(coord, imgSrc, name) {
 /* ════════════════════════════════
    팝업
 ════════════════════════════════ */
+let _popupJustOpened = false;
 function openPopup(m) {
+  _popupJustOpened = true;
+  setTimeout(() => { _popupJustOpened = false; }, 350);
   closeAllPopups();
   const el = m.isPhoto ? makePhotoEl(m) : makeTextEl(m);
   const ov = new ol.Overlay({ element: el, positioning: 'bottom-center', offset: [0, -14], stopEvent: true, autoPan: false });
@@ -1139,9 +1142,11 @@ function closeAllPopups() {
   markers.forEach(m => { if (m.ov) { vmap.removeOverlay(m.ov); m.ov = null; } });
 }
 
-// 팝업 외부 클릭 시 닫기
+// 팝업 외부 클릭/탭 시 닫기 (드래그 제외)
 // OL stopEvent:true가 버블링을 차단하므로 document 캡처 단계에서 처리
+// _popupJustOpened 플래그: 마커 탭 후 합성 click으로 팝업이 즉시 닫히는 것 방지
 document.addEventListener('click', (e) => {
+  if (_popupJustOpened) return;
   if (!e.target.closest('.mpopup')) closeAllPopups();
 }, true);
 
