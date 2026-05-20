@@ -1062,9 +1062,10 @@ function ptSegDist(p, a, b) {
 ════════════════════════════════ */
 function mkNormalStyle() {
   return new ol.style.Style({
-    image: new ol.style.Icon({
-      src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="28" height="40" viewBox="0 0 28 40"><path d="M14 0C6.27 0 0 6.27 0 14c0 9.63 14 26 14 26S28 23.63 28 14C28 6.27 21.73 0 14 0z" fill="#e53935"/><circle cx="14" cy="14" r="6" fill="white"/></svg>'),
-      anchor: [0.5, 1], anchorXUnits: 'fraction', anchorYUnits: 'fraction', scale: 1
+    image: new ol.style.Circle({
+      radius: 8,
+      fill: new ol.style.Fill({ color: '#e74c3c' }),
+      stroke: new ol.style.Stroke({ color: 'white', width: 2 })
     })
   });
 }
@@ -1072,8 +1073,8 @@ function mkPhotoStyle() {
   return new ol.style.Style({
     image: new ol.style.Circle({
       radius: 8,
-      fill: new ol.style.Fill({ color: '#1565C0' }),
-      stroke: new ol.style.Stroke({ color: 'white', width: 1.5 })
+      fill: new ol.style.Fill({ color: '#2471a3' }),
+      stroke: new ol.style.Stroke({ color: 'white', width: 2 })
     })
   });
 }
