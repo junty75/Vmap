@@ -1261,8 +1261,10 @@ function startLocationWatchIfNeeded() {
   }, 500);
   watchId = navigator.geolocation.watchPosition(pos => {
     const c = toMerc(pos.coords.longitude, pos.coords.latitude);
-    const h = (pos.coords.heading != null && !isNaN(pos.coords.heading) && pos.coords.heading >= 0)
-      ? pos.coords.heading : deviceHeading;
+    // 나침반(바라보는 방향) 우선. GPS heading은 정지 중 무작위로 튀므로 나침반 없을 때만 폴백.
+    const h = (deviceHeading !== null)
+      ? deviceHeading
+      : ((pos.coords.heading != null && !isNaN(pos.coords.heading) && pos.coords.heading >= 0) ? pos.coords.heading : null);
     if (!locationFeat) {
       locationFeat = new ol.Feature({ geometry: new ol.geom.Point(c) });
       locationFeat.setStyle(makeLocationStyle(h));
