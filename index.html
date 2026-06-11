@@ -393,7 +393,15 @@ async function clearDB() {
   } catch(e) { console.warn('DB 초기화 오류', e); }
 }
 
-async function autoSaveToDB() {
+// 사진 재압축+ZIP 생성이 무거워 UI를 막으므로, 호출을 모아서(debounce) 화면이
+// 먼저 그려진 뒤 백그라운드로 실행한다.
+let _autoSaveTimer = null;
+function autoSaveToDB() {
+  clearTimeout(_autoSaveTimer);
+  _autoSaveTimer = setTimeout(_autoSaveNow, 400);
+}
+
+async function _autoSaveNow() {
   try {
     // 모두 삭제된 경우 DB 항목 자체를 지워 재실행 시 복원되지 않도록 함
     if (markers.length === 0 && polylines.length === 0) {
@@ -1540,7 +1548,9 @@ document.getElementById('clearBtn').onclick = () => {
 /* ════════════════════════════════
    이미지 압축 / GPS 다운로드
 ════════════════════════════════ */
+const _compressCache = new Map();   // 원본 src → 압축 결과 (같은 사진 매번 재압축 방지)
 function compressImage(src) {
+  if (_compressCache.has(src)) return Promise.resolve(_compressCache.get(src));
   return new Promise(res => {
     const TARGET = 300 * 1024;
     const img = new Image();
@@ -1551,6 +1561,7 @@ function compressImage(src) {
       cv.getContext('2d').drawImage(img, 0, 0, w, h);
       let q = 0.85, r = cv.toDataURL('image/jpeg', q);
       while (r.length * 0.75 > TARGET && q > 0.1) { q = Math.round((q - 0.05)*100)/100; r = cv.toDataURL('image/jpeg', q); }
+      _compressCache.set(src, r);
       res(r);
     };
     img.src = src;
