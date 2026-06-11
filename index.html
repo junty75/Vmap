@@ -320,6 +320,15 @@ let markerPlacingMode = false;
 let hintShown = false;
 let deviceHeading = null;   // 기기 나침반 방향 (정지 중 방향 표시용)
 let headingInterval = null; // 정지 중 방향 갱신 타이머
+let cssScale = 1;           // 최대 줌 이후 CSS scale 확대 (+,- 버튼 전용)
+
+const MAX_CSS_SCALE = 8;
+function applyScale(s) {
+  cssScale = Math.max(1, Math.min(MAX_CSS_SCALE, s));
+  const el = document.getElementById('vmap');
+  el.style.transformOrigin = '50% 50%';
+  el.style.transform = cssScale === 1 ? '' : `scale(${cssScale})`;
+}
 
 const VWORLD_KEY = '55FD7275-A6F5-3B69-9966-CD4BFA2FD35F';
 
@@ -598,9 +607,22 @@ function initMap(lat, lng, zoom) {
     }
   });
 
-  // 줌 버튼
-  document.getElementById('zoomInBtn').onclick  = () => vmap.getView().setZoom((vmap.getView().getZoom()||14) + 1);
-  document.getElementById('zoomOutBtn').onclick = () => vmap.getView().setZoom((vmap.getView().getZoom()||14) - 1);
+  // 줌 버튼 (최대 줌 이후에는 CSS scale로 화면 확대 — +,- 버튼 전용)
+  document.getElementById('zoomInBtn').onclick = () => {
+    if (cssScale > 1) { applyScale(cssScale * 2); return; }
+    const v = vmap.getView();
+    const z = v.getZoom() || 14;
+    v.setZoom(z + 1);
+    // 줌이 더 안 올라가면(최대 줌 도달) CSS scale로 추가 확대
+    if (Math.abs((v.getZoom() || z) - z) < 0.01) applyScale(cssScale * 2);
+  };
+  document.getElementById('zoomOutBtn').onclick = () => {
+    if (cssScale > 1) { applyScale(cssScale / 2); return; }
+    vmap.getView().setZoom((vmap.getView().getZoom() || 14) - 1);
+  };
+
+  // 핀치 등으로 실제 줌이 바뀌면 CSS scale 리셋 (좌표 어긋남 방지)
+  vmap.getView().on('change:resolution', () => { if (cssScale > 1) applyScale(1); });
 
   // 지도 이동/줌 변경 시 마지막 위치 저장
   let _savePosTimer = null;
