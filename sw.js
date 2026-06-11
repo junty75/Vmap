@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kmz-viewer-v18';
+const CACHE_NAME = 'kmz-viewer-v13';
 const STATIC_ASSETS = [
   './index.html',
   './manifest.json',
@@ -14,6 +14,14 @@ self.addEventListener('install', e => {
 });
 
 // 활성화: 이전 캐시 삭제
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
+});
+
 self.addEventListener('fetch', e => {
   if (e.request.mode === 'navigate') {
     return; // 🔥 중요
