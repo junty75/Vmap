@@ -1417,7 +1417,34 @@ async function loadKMZ(file, silent = false) {
 /* ════════════════════════════════
    KMZ 저장
 ════════════════════════════════ */
-document.getElementById('saveBtn').onclick = exportKMZ;
+// ─── 저장 범위 선택 (현재영역/전체영역) ───────────────
+function askSaveScope() {
+  return new Promise(resolve => {
+    const bg = document.createElement('div');
+    bg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9000;display:flex;align-items:center;justify-content:center;';
+    const btnCss = 'display:block;width:100%;padding:12px;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px;';
+    bg.innerHTML =
+      '<div style="background:white;border-radius:14px;padding:20px;width:270px;box-shadow:0 4px 24px rgba(0,0,0,0.25);">' +
+      '<h3 style="margin:0 0 14px;font-size:15px;color:#333;text-align:center;">저장 범위 선택</h3>' +
+      `<button data-scope="view" style="${btnCss}background:#1a73e8;color:white;">📺 현재영역<br><span style="font-size:11px;font-weight:400;">화면에 보이는 객체만</span></button>` +
+      `<button data-scope="all" style="${btnCss}background:#00897b;color:white;">🌍 전체영역<br><span style="font-size:11px;font-weight:400;">모든 객체</span></button>` +
+      `<button data-scope="" style="${btnCss}background:#f1f3f4;color:#555;margin-bottom:0;">취소</button>` +
+      '</div>';
+    bg.addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b && e.target !== bg) return;   // 박스 안 여백 클릭은 무시
+      bg.remove();
+      resolve(b ? (b.dataset.scope || null) : null);
+    });
+    document.body.appendChild(bg);
+  });
+}
+
+document.getElementById('saveBtn').onclick = async () => {
+  const scope = await askSaveScope();
+  if (!scope) return;
+  exportKMZ(scope);
+};
 
 async function getAddrPrefix() {
   try {
@@ -1442,11 +1469,21 @@ async function getAddrPrefix() {
   } catch(e) { return ''; }
 }
 
-async function exportKMZ() {
+async function exportKMZ(scope = 'all') {
+  // 저장 범위: 'view'=현재 화면에 보이는 객체만, 'all'=전체 객체
+  const extent = scope === 'view' ? vmap.getView().calculateExtent(vmap.getSize()) : null;
+  const inView = c => !extent || ol.extent.containsCoordinate(extent, c);
+  const expMarkers = markers.filter(m => inView(m.feat.getGeometry().getCoordinates()));
+  const expPolylines = polylines.filter(lyr => !extent || getCoords(lyr).some(inView));
+  if (expMarkers.length === 0 && expPolylines.length === 0) {
+    alert(scope === 'view' ? '현재 화면에 보이는 객체가 없습니다.' : '저장할 객체가 없습니다.');
+    return;
+  }
+
   const now = new Date();
   const dateStr = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}`;
   const prefix = await getAddrPrefix();
-  const last = ([...markers].reverse().find(m => !m.isPhoto) || markers.at(-1))?.name || '';
+  const last = ([...expMarkers].reverse().find(m => !m.isPhoto) || expMarkers.at(-1))?.name || '';
   const cleanLast = last.replace(/_\d{8}.*$/, '').replace(/[\\/:*?"<>|]/g, '').trim();
   const defaultName = cleanLast ? `${prefix}${dateStr}_${cleanLast}` : `${prefix}${dateStr}_`;
 
@@ -1461,12 +1498,12 @@ async function exportKMZ() {
     let kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${esc(fileName)}</name>\n`;
     const usedFn = new Set();
 
-    for (const lyr of polylines) {
+    for (const lyr of expPolylines) {
       const sn = esc(lyr._name || '선');
       const coords = getCoords(lyr).map(c => { const ll = fromMerc(c); return `${ll[0]},${ll[1]},0`; }).join(' ');
       kml += `<Placemark><name>${sn}</name><LineString><coordinates>${coords}</coordinates></LineString></Placemark>\n`;
     }
-    for (const m of markers) {
+    for (const m of expMarkers) {
       const ll = fromMerc(m.feat.getGeometry().getCoordinates());
       const sn = esc(m.name);
       if (m.isPhoto && m.imgSrc) {
