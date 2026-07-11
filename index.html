@@ -278,7 +278,7 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 <!-- 사진 정보/메타 수정 모달 -->
 <div id="photoInfoModal">
   <div id="photoInfoBox">
-    <h3>📷 사진 정보 <span style="font-size:11px;color:#bbb;font-weight:400">v4</span></h3>
+    <h3>📷 사진 정보 <span style="font-size:11px;color:#bbb;font-weight:400">v5</span></h3>
     <label>제목</label>
     <input type="text" id="piTitle" maxlength="80">
     <label>설명</label>
@@ -1648,7 +1648,7 @@ async function loadImage(file, getNG, setNG) {
         document.getElementById('saveBtn').disabled = false;
         resolve(c);
       } else {
-        if (getNG() === null) setNG(confirm(`"${file.name}" 위치 정보 없음.\n지도 중심에 추가할까요?`));
+        if (getNG() === null) setNG(confirm(`"${file.name}" 위치 정보 없음.\n(갤러리 선택창은 안드로이드가 위치를 제거할 수 있음 — '파일' 앱으로 선택하면 유지)\n지도 중심에 추가할까요?`));
         if (getNG()) {
           keepOrig(addPhotoMarker(vmap.getView().getCenter(), src, name));
           document.getElementById('saveBtn').disabled = false;
@@ -2034,6 +2034,7 @@ function _exifSafeCarry(exif, jpegDataUrl) {
       const dt = x[piexif.ExifIFD.DateTimeOriginal] || o[piexif.ImageIFD.DateTime];
       if (dt) { fresh['Exif'][piexif.ExifIFD.DateTimeOriginal] = dt; fresh['0th'][piexif.ImageIFD.DateTime] = dt; }
       if (g[piexif.GPSIFD.GPSLatitude]) {
+        fresh['GPS'][piexif.GPSIFD.GPSVersionID]    = g[piexif.GPSIFD.GPSVersionID]    || [2, 3, 0, 0];
         fresh['GPS'][piexif.GPSIFD.GPSLatitudeRef]  = g[piexif.GPSIFD.GPSLatitudeRef]  || 'N';
         fresh['GPS'][piexif.GPSIFD.GPSLatitude]     = g[piexif.GPSIFD.GPSLatitude];
         fresh['GPS'][piexif.GPSIFD.GPSLongitudeRef] = g[piexif.GPSIFD.GPSLongitudeRef] || 'E';
@@ -2079,6 +2080,8 @@ function writePhotoMeta(imgSrc, { title, desc, lat, lng, taken } = {}) {
     if (desc != null) ex['0th'][piexif.ImageIFD.XPComment] = _xpBytes(desc);
     if (taken) { ex['Exif'][piexif.ExifIFD.DateTimeOriginal] = taken; ex['0th'][piexif.ImageIFD.DateTime] = taken; }
     if (lat != null && lng != null) {
+      // GPSVersionID 필수 — 없으면 삼성 갤러리 등 일부 뷰어가 GPS 블록을 무시함
+      ex['GPS'][piexif.GPSIFD.GPSVersionID]    = ex['GPS'][piexif.GPSIFD.GPSVersionID] || [2, 3, 0, 0];
       ex['GPS'][piexif.GPSIFD.GPSLatitudeRef]  = lat >= 0 ? 'N' : 'S';
       ex['GPS'][piexif.GPSIFD.GPSLatitude]     = _gpsRat(lat);
       ex['GPS'][piexif.GPSIFD.GPSLongitudeRef] = lng >= 0 ? 'E' : 'W';
