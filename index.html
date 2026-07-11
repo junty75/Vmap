@@ -59,6 +59,10 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 #myLocationBtn svg{width:26px;height:26px;}
 #drawBtn{top:128px;right:16px;padding:0;transition:background 0.2s;font-size:18px;}
 #drawBtn.active{background:#e53935;box-shadow:0 2px 8px rgba(219,68,55,0.6);}
+/* 선그리기 색/굵기 버튼 (그리기 중에만 표시) */
+#drawStyleBtn{top:128px;right:72px;display:none;}
+#drawStyleBtn.show{display:flex;}
+#drawStyleBtn .dsb-line{width:26px;border-radius:3px;background:#FF0000;height:3px;}
 #markerBtn{top:184px;right:16px;padding:0;transition:background 0.2s;font-size:20px;}
 #markerBtn.active{background:#43a047;box-shadow:0 2px 8px rgba(67,160,71,0.6);}
 #clearBtn{top:240px;right:16px;padding:0;transition:background 0.2s;}
@@ -83,6 +87,20 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 }
 #crosshair::after{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:7px;height:7px;background:#e53935;border-radius:50%;}
 #crosshair.show{display:block;}
+
+/* ── 선 스타일 피커 (색상/굵기) ── */
+#stylePicker{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9500;align-items:center;justify-content:center;}
+#stylePicker.show{display:flex;}
+#stylePickerBox{background:white;border-radius:14px;padding:18px 18px 16px;width:300px;box-shadow:0 4px 24px rgba(0,0,0,0.25);}
+#stylePickerBox h3{margin:0 0 12px;font-size:15px;color:#333;}
+.sp-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:9px;margin-bottom:14px;}
+.sp-swatch{width:100%;aspect-ratio:1;border-radius:50%;border:1.5px solid rgba(0,0,0,0.18);cursor:pointer;padding:0;}
+.sp-swatch.sel{outline:3px solid #1a73e8;outline-offset:2px;}
+.sp-widths{display:flex;gap:6px;margin-bottom:14px;}
+.sp-w{flex:1;height:38px;border:1.5px solid #ddd;border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0 4px;}
+.sp-w.sel{border-color:#1a73e8;background:#e8f0fe;}
+.sp-w span{display:block;width:100%;border-radius:2px;background:#444;}
+#spCloseBtn{width:100%;padding:11px;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;background:#f1f3f4;color:#555;}
 
 /* ── 선 메뉴 ── */
 #polyMenu{display:none;position:fixed;z-index:9999;background:white;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.25);overflow:hidden;min-width:140px;}
@@ -194,6 +212,7 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
   </svg>
 </button>
 <button class="btn" id="drawBtn" title="선 그리기">✏️</button>
+<button class="btn" id="drawStyleBtn" title="선 색상/굵기"><span class="dsb-line"></span></button>
 <button class="btn" id="markerBtn" title="마커 추가">📍</button>
 <button class="btn" id="clearBtn" title="화면 초기화">
   <svg viewBox="0 0 24 24" fill="none" width="26" height="26">
@@ -212,7 +231,7 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
     <option value="GRAY">회색지도</option>
   </select>
 </div>
-<input type="file" id="fileInput" accept=".kmz,.zip,image/jpeg,image/png,.jpg,.jpeg,.png" multiple>
+<input type="file" id="fileInput" accept=".kmz,.zip,.kml,image/jpeg,image/png,.jpg,.jpeg,.png" multiple>
 
 <!-- 조준원 -->
 <div id="crosshair"></div>
@@ -236,8 +255,19 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 <!-- 선 메뉴 -->
 <div id="polyMenu">
   <button id="polyEditBtn">✏️ 수정</button>
+  <button id="polyStyleBtn">🎨 색상/굵기</button>
   <button id="polyDeleteBtn" class="danger">🗑️ 삭제</button>
   <button id="polyMenuCancelBtn">✕ 취소</button>
+</div>
+
+<!-- 선 스타일 피커 (색상/굵기) -->
+<div id="stylePicker">
+  <div id="stylePickerBox">
+    <h3>🎨 선 색상 / 굵기</h3>
+    <div class="sp-grid" id="spGrid"></div>
+    <div class="sp-widths" id="spWidths"></div>
+    <button id="spCloseBtn">닫기</button>
+  </div>
 </div>
 
 <!-- 마커 추가 모달 -->
@@ -413,7 +443,7 @@ function autoSaveToDB() {
 async function _autoSaveNow() {
   try {
     // 모두 삭제된 경우 DB 항목 자체를 지워 재실행 시 복원되지 않도록 함
-    if (markers.length === 0 && polylines.length === 0) {
+    if (markers.length === 0 && polylines.length === 0 && textLabelsV.length === 0) {
       await clearDB();
       return;
     }
@@ -433,12 +463,10 @@ async function _autoSaveNow() {
         xml += `\n<Placemark><name>${sn}</name><Point><coordinates>${ll[0]},${ll[1]},0</coordinates></Point></Placemark>`;
       }
     }
-    for (const lyr of polylines) {
-      const sn = esc(lyr._name || '선');
-      const cs = getCoords(lyr).map(c => { const ll = fromMerc(c); return `${ll[0]},${ll[1]},0`; }).join(' ');
-      xml += `\n<Placemark><name>${sn}</name><LineString><coordinates>${cs}</coordinates></LineString></Placemark>`;
-    }
-    zip.file('doc.kml', `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document>${xml}\n</Document></kml>`);
+    const styles = new Map();
+    for (const lyr of polylines) xml += _lineKmlPlacemarkV(lyr, styles);
+    for (const t of textLabelsV) xml += _textKmlPlacemarkV(t);
+    zip.file('doc.kml', `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document>${_lineKmlStyleDefsV(styles)}${xml}\n</Document></kml>`);
     const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
     await saveKMZtoDB(blob);
   } catch(e) { console.error('자동저장 오류', e); }
@@ -885,6 +913,86 @@ document.getElementById('markerBtn').onclick = () => {
 };
 
 /* ════════════════════════════════
+   선 색상/굵기 선택 (map.html 팔레트 이식)
+════════════════════════════════ */
+const PALETTE_COLORS = [
+  '#000000','#404040','#808080','#BFBFBF','#FFFFFF','#C00000','#FF0000','#FFC000','#FFFF00','#92D050',
+  '#00B050','#00B0F0','#0070C0','#002060','#7030A0','#FF6600','#00B0A0','#E91E63','#795548','#2E86C1'
+];
+const LINE_WIDTHS = [2, 3, 4, 6, 8, 10];
+let currentDrawColor = '#FF0000', currentDrawWidth = 3;
+let _styleTarget = null;   // null=그리기 기본값(그리는 중이면 현재 선), 아니면 polylines 레이어
+
+function _updateDrawStyleBtn() {
+  const el = document.querySelector('#drawStyleBtn .dsb-line');
+  if (el) { el.style.background = currentDrawColor; el.style.height = Math.min(10, Math.max(3, currentDrawWidth)) + 'px'; }
+}
+
+(function buildStylePicker(){
+  const grid = document.getElementById('spGrid');
+  PALETTE_COLORS.forEach(c => {
+    const b = document.createElement('button');
+    b.className = 'sp-swatch'; b.style.background = c; b.dataset.color = c;
+    b.onclick = () => applyPickedStyle(c, null);
+    grid.appendChild(b);
+  });
+  const ws = document.getElementById('spWidths');
+  LINE_WIDTHS.forEach(w => {
+    const b = document.createElement('button');
+    b.className = 'sp-w'; b.dataset.width = w; b.title = w + 'px';
+    b.innerHTML = `<span style="height:${Math.min(w, 12)}px"></span>`;
+    b.onclick = () => applyPickedStyle(null, w);
+    ws.appendChild(b);
+  });
+  document.getElementById('spCloseBtn').onclick = closeStylePicker;
+  document.getElementById('stylePicker').addEventListener('click', e => {
+    if (e.target === document.getElementById('stylePicker')) closeStylePicker();
+  });
+})();
+
+function _spMarkSelected(color, width) {
+  document.querySelectorAll('#spGrid .sp-swatch').forEach(b =>
+    b.classList.toggle('sel', b.dataset.color.toUpperCase() === String(color || '').toUpperCase()));
+  document.querySelectorAll('#spWidths .sp-w').forEach(b =>
+    b.classList.toggle('sel', +b.dataset.width === +width));
+}
+function openStylePicker(target) {
+  _styleTarget = target || null;
+  const c = _styleTarget ? (_styleTarget._color || '#FF0000') : currentDrawColor;
+  const w = _styleTarget ? (_styleTarget._width || 3) : currentDrawWidth;
+  _spMarkSelected(c, w);
+  document.getElementById('stylePicker').classList.add('show');
+}
+function closeStylePicker() {
+  document.getElementById('stylePicker').classList.remove('show');
+  _styleTarget = null;
+}
+// 색 또는 굵기 하나를 고르면 즉시 반영 (모달은 닫기 전까지 유지 — 색·굵기 연속 선택 가능)
+function applyPickedStyle(color, width) {
+  if (_styleTarget) {
+    const lyr = _styleTarget;
+    restyleLyrV(lyr, color || lyr._color || '#FF0000', width || lyr._width || 3);
+    _spMarkSelected(lyr._color, lyr._width);
+    autoSaveToDB();
+  } else {
+    if (color) currentDrawColor = color;
+    if (width) currentDrawWidth = width;
+    _updateDrawStyleBtn();
+    _spMarkSelected(currentDrawColor, currentDrawWidth);
+    // 그리는 중이면 현재 그리는 선에도 즉시 반영
+    if (drawing && drawLayer) refreshDraw();
+  }
+}
+// OL 은 피처 setStyle 로 즉시 반영 (Vmap.html recolorTrackV 방식 — 묶음선은 모든 피처)
+function restyleLyrV(lyr, color, width) {
+  lyr._color = color; lyr._width = width;
+  lyr.getSource().getFeatures().forEach(f => {
+    if (f.getGeometry() instanceof ol.geom.LineString) f.setStyle(lineSt(color, width));
+  });
+}
+document.getElementById('drawStyleBtn').onclick = () => openStylePicker(null);
+
+/* ════════════════════════════════
    선 그리기
 ════════════════════════════════ */
 function toggleDraw() { drawing ? endDraw() : startDraw(); }
@@ -892,11 +1000,13 @@ function toggleDraw() { drawing ? endDraw() : startDraw(); }
 function startDraw() {
   if (drawing) return;
   drawing = true; drawCoords = [];
-  drawLayer = mkLineLyr([], '#FF0000', 3);
+  drawLayer = mkLineLyr([], currentDrawColor, currentDrawWidth);
   addLyr(drawLayer);
   document.getElementById('vmap').classList.add('draw-mode');
   document.getElementById('drawBtn').classList.add('active');
   document.getElementById('drawBtn').title = '선 그리기 종료';
+  document.getElementById('drawStyleBtn').classList.add('show');
+  _updateDrawStyleBtn();
   // 거리표시는 첫 클릭 후 시작 (startDraw에서 표시 안 함)
 }
 
@@ -906,6 +1016,7 @@ function endDraw() {
   document.getElementById('vmap').classList.remove('draw-mode');
   document.getElementById('drawBtn').classList.remove('active');
   document.getElementById('drawBtn').title = '선 그리기';
+  document.getElementById('drawStyleBtn').classList.remove('show');
   if (drawCoords.length >= 2 && drawLayer) {
     polylines.push(drawLayer);
     document.getElementById('saveBtn').disabled = false;
@@ -918,16 +1029,17 @@ function refreshDraw() {
   if (!drawLayer) return;
   const src = drawLayer.getSource();
   src.clear(); // 점이 없어도 항상 먼저 지움
+  drawLayer._color = currentDrawColor; drawLayer._width = currentDrawWidth;
   if (drawCoords.length >= 2) {
     const f = new ol.Feature(new ol.geom.LineString(drawCoords));
-    f.setStyle(lineSt('#FF0000', 3));
+    f.setStyle(lineSt(currentDrawColor, currentDrawWidth));
     src.addFeature(f);
   } else if (drawCoords.length === 1) {
     const f = new ol.Feature(new ol.geom.Point(drawCoords[0]));
     f.setStyle(new ol.style.Style({
       image: new ol.style.Circle({
         radius: 5,
-        fill: new ol.style.Fill({ color: '#FF0000' }),
+        fill: new ol.style.Fill({ color: currentDrawColor }),
         stroke: new ol.style.Stroke({ color: 'white', width: 1.5 })
       })
     }));
@@ -984,6 +1096,13 @@ function showPolyMenu(x, y, lyr) {
 function hidePolyMenu() { document.getElementById('polyMenu').classList.remove('show'); polyTarget = null; }
 document.addEventListener('click', e => { if (!document.getElementById('polyMenu').contains(e.target)) hidePolyMenu(); });
 document.getElementById('polyMenuCancelBtn').onclick = hidePolyMenu;
+// 선 색상/굵기 변경 (묶음선 포함 — setStyle 방식이라 전부 가능)
+document.getElementById('polyStyleBtn').onclick = () => {
+  if (!polyTarget) return;
+  const lyr = polyTarget;
+  hidePolyMenu();
+  openStylePicker(lyr);
+};
 document.getElementById('polyDeleteBtn').onclick = () => {
   if (!polyTarget) return;
   removeLyr(polyTarget); polylines = polylines.filter(p => p !== polyTarget);
@@ -993,15 +1112,22 @@ document.getElementById('polyDeleteBtn').onclick = () => {
 document.getElementById('polyEditBtn').onclick = () => {
   if (!polyTarget) return;
   const lyr = polyTarget; hidePolyMenu();
+  // 묶음선(KMZ MultiGeometry 멀티피처)은 점 편집 불가 (Vmap.html 과 동일 정책)
+  if (coordParts(lyr).length > 1) { alert('여러 선이 묶인 객체는 수정할 수 없습니다.'); return; }
   if (drawing) endDraw();
   const coords = getCoords(lyr);
   removeLyr(lyr); polylines = polylines.filter(p => p !== lyr);
   drawing = true; drawCoords = coords.slice();
-  drawLayer = mkLineLyr(drawCoords, '#FF0000', 3);
+  // 원래 색·굵기 유지한 채 수정 모드 진입
+  currentDrawColor = lyr._color || currentDrawColor;
+  currentDrawWidth = lyr._width || currentDrawWidth;
+  drawLayer = mkLineLyr(drawCoords, currentDrawColor, currentDrawWidth);
   addLyr(drawLayer);
   document.getElementById('vmap').classList.add('draw-mode');
   document.getElementById('drawBtn').classList.add('active');
   document.getElementById('drawBtn').title = '선 그리기 종료';
+  document.getElementById('drawStyleBtn').classList.add('show');
+  _updateDrawStyleBtn();
 };
 
 /* ════════════════════════════════
@@ -1015,15 +1141,96 @@ function mkLineLyr(coords, color, width) {
     f.setStyle(lineSt(color, width)); src.addFeature(f);
   }
   const lyr = new ol.layer.Vector({ source: src, zIndex: 100 });
-  lyr._color = color; lyr._coords = coords.slice(); lyr._name = '선';
+  lyr._color = color; lyr._width = width; lyr._coords = coords.slice(); lyr._name = '선';
+  return lyr;
+}
+// 한 Placemark의 여러 도형(MultiGeometry/폴리곤 링)을 한 레이어에 전부 담기 (Vmap.html 이식)
+// 선별 개별 레이어는 수천 개 KMZ 에서 무거움 → 색상/Placemark당 레이어 1개로 경량화.
+function mkMultiLineLyr(coordsArrays, color, width) {
+  const src = new ol.source.Vector();
+  for (const cs of coordsArrays) {
+    if (cs && cs.length >= 2) { const f = new ol.Feature(new ol.geom.LineString(cs)); f.setStyle(lineSt(color, width)); src.addFeature(f); }
+  }
+  const lyr = new ol.layer.Vector({ source: src, zIndex: 100 });
+  lyr._color = color; lyr._width = width; lyr._coords = (coordsArrays[0] || []); lyr._name = '선';
   return lyr;
 }
 function getCoords(lyr) {
   const fs = lyr.getSource().getFeatures();
   return fs.length ? fs[0].getGeometry().getCoordinates() : (lyr._coords || []);
 }
+// 레이어의 '모든' LineString 피처 좌표 (Vmap.html coordParts 이식 — 첫 피처만 보면 묶음선 유실)
+function coordParts(lyr) {
+  const fs = lyr.getSource().getFeatures().filter(f => f.getGeometry() instanceof ol.geom.LineString);
+  return fs.length ? fs.map(f => f.getGeometry().getCoordinates()) : ((lyr._coords && lyr._coords.length) ? [lyr._coords] : []);
+}
 function addLyr(lyr) { vmap.addLayer(lyr); }
 function removeLyr(lyr) { try { vmap.removeLayer(lyr); } catch(e) {} }
+
+/* ════════════════════════════════
+   CAD 문자(kind=text) 텍스트 라벨 — 마커 없이 글자만(회전 포함, Vmap.html 이식)
+   자동저장/내보내기 복원을 위해 좌표·회전·색을 textLabelsV 에 함께 보관.
+════════════════════════════════ */
+let textLabelLyr = null, textLabelsV = [];
+function _ensureTextLabelLyr() {
+  if (!textLabelLyr) { textLabelLyr = new ol.layer.Vector({ source: new ol.source.Vector(), zIndex: 120 }); addLyr(textLabelLyr); }
+  return textLabelLyr;
+}
+function addTextLabelV(coord, text, rot, color) {
+  const col = /^#[0-9a-fA-F]{6}$/.test(color || '') ? color : '#FFEB00';
+  const f = new ol.Feature(new ol.geom.Point(coord));
+  f.setStyle(new ol.style.Style({ text: new ol.style.Text({
+    text: String(text == null ? '' : text),
+    font: 'bold 13px sans-serif',
+    fill: new ol.style.Fill({ color: col }),
+    stroke: new ol.style.Stroke({ color: '#000', width: 3 }),
+    rotation: -(Number(rot) || 0) * Math.PI / 180,   // CAD 반시계 -> OL 시계(부호 반전)
+    rotateWithView: true, overflow: true })}));
+  _ensureTextLabelLyr().getSource().addFeature(f);
+  textLabelsV.push({ name: String(text == null ? '' : text), rot: Number(rot) || 0, color: col, coord });
+}
+function clearTextLabelsV() {
+  if (textLabelLyr) textLabelLyr.getSource().clear();
+  textLabelsV = [];
+}
+
+/* ════════════════════════════════
+   트랙/라벨 → KML 직렬화 (내보내기/자동저장 공용, Vmap.html 대응)
+   묶음선은 MultiGeometry 한 개로, 색·굵기는 공유 <Style id="ln_RRGGBB_W">로.
+════════════════════════════════ */
+function _lineKmlPlacemarkV(lyr, styles) {
+  const segs = [];
+  for (const cs of coordParts(lyr)) {
+    if (!cs || cs.length < 2) continue;
+    const coords = cs.map(c => { const ll = fromMerc(c); return `${ll[0]},${ll[1]},0`; }).join(' ');
+    segs.push(`<LineString><coordinates>${coords}</coordinates></LineString>`);
+  }
+  if (!segs.length) return '';
+  let su = '';
+  if (styles) {
+    const hex = ((lyr._color || '#FF0000') + '').replace('#','');
+    const w = lyr._width || 3;
+    const key = hex + '_' + w;
+    if (!styles.has(key)) styles.set(key, 'ln_' + key);
+    su = `<styleUrl>#${styles.get(key)}</styleUrl>`;
+  }
+  const geom = segs.length === 1 ? segs[0] : `<MultiGeometry>${segs.join('')}</MultiGeometry>`;
+  return `\n<Placemark><name>${esc(lyr._name || '선')}</name>${su}${geom}</Placemark>`;
+}
+// styles(Map: 'RRGGBB_w' -> id) -> KML <Style> 정의 (KML 색은 aabbggrr)
+function _lineKmlStyleDefsV(styles) {
+  let out = '';
+  for (const [key, id] of styles) {
+    const [hex, w] = key.split('_');
+    out += `\n<Style id="${id}"><LineStyle><color>ff${hex.slice(4,6)}${hex.slice(2,4)}${hex.slice(0,2)}</color><width>${w}</width></LineStyle></Style>`;
+  }
+  return out;
+}
+// 텍스트 라벨 → KML Placemark (kind=text — 자동저장/내보내기 복원용)
+function _textKmlPlacemarkV(t) {
+  const ll = fromMerc(t.coord);
+  return `\n<Placemark><name>${esc(t.name)}</name><ExtendedData><Data name="kind"><value>text</value></Data><Data name="rot"><value>${t.rot}</value></Data><Data name="color"><value>${t.color}</value></Data></ExtendedData><Point><coordinates>${ll[0]},${ll[1]},0</coordinates></Point></Placemark>`;
+}
 
 /* ════════════════════════════════
    가이드선 & 거리
@@ -1070,13 +1277,15 @@ function haversine(c1, c2) {
 function findNearPoly(pixel, thr) {
   let near = null, minD = Infinity;
   polylines.forEach(lyr => {
-    const cs = getCoords(lyr);
-    for (let i = 0; i < cs.length - 1; i++) {
-      const a = vmap.getPixelFromCoordinate(cs[i]);
-      const b = vmap.getPixelFromCoordinate(cs[i+1]);
-      if (!a || !b) continue;
-      const d = ptSegDist(pixel, a, b);
-      if (d < minD) { minD = d; near = lyr; }
+    // 묶음선(멀티피처)도 모든 피처를 히트테스트 (Vmap.html coordParts 방식)
+    for (const cs of coordParts(lyr)) {
+      for (let i = 0; i < cs.length - 1; i++) {
+        const a = vmap.getPixelFromCoordinate(cs[i]);
+        const b = vmap.getPixelFromCoordinate(cs[i+1]);
+        if (!a || !b) continue;
+        const d = ptSegDist(pixel, a, b);
+        if (d < minD) { minD = d; near = lyr; }
+      }
     }
   });
   return minD <= thr ? near : null;
@@ -1322,7 +1531,7 @@ document.getElementById('fileInput').onchange = async e => {
   if (!files.length) return;
   e.target.value = '';
   const imgFiles = files.filter(f => /\.(jpe?g|png)$/i.test(f.name) || f.type.startsWith('image/'));
-  const mapFiles = files.filter(f => /\.(kmz|zip)$/i.test(f.name));
+  const mapFiles = files.filter(f => /\.(kmz|zip|kml)$/i.test(f.name));
   for (const file of mapFiles) await loadKMZ(file);
   if (mapFiles.length > 0) autoSaveToDB();
   let noGPS = null;
@@ -1366,56 +1575,120 @@ async function loadKMZ(file, silent = false) {
     closeAllPopups();
     markers.forEach(m => removeLyr(m.lyr)); markers = [];
     polylines.forEach(l => removeLyr(l)); polylines = [];
+    clearTextLabelsV();
     document.getElementById('saveBtn').disabled = true;
   }
 
   try {
-    const zip = await JSZip.loadAsync(file);
-    const keys = Object.keys(zip.files);
-    let kmlText = null;
-    for (const k of keys) {
-      if (/\.kml$/i.test(k.replace(/\0/g, ''))) {
-        try { const t = await zip.files[k].async('string'); if (t && t.length > 0) { kmlText = t; break; } } catch(e) {}
+    // KMZ(zip)는 'PK'(0x50 0x4B)로 시작. 평문 .kml 은 zip 이 아니므로 헤더로 판별. (Vmap.html 이식)
+    let zip = null, keys = [], kmlText = null;
+    const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+    const isZip = head[0] === 0x50 && head[1] === 0x4B;
+    if (isZip) {
+      zip = await JSZip.loadAsync(file);
+      keys = Object.keys(zip.files);
+      for (const k of keys) {
+        if (/\.kml$/i.test(k.replace(/\0/g, ''))) {
+          try { const t = await zip.files[k].async('string'); if (t && t.length > 0) { kmlText = t; break; } } catch(e) {}
+        }
       }
+      if (!kmlText) { alert('KMZ 안에 .kml 파일이 없습니다.'); hideLoading(); return; }
+    } else if (/\.kml$/i.test(file.name)) {
+      kmlText = await file.text();   // 평문 KML (내부 임베드 사진 없음 — 마커/트랙만)
+    } else {
+      alert('KMZ / ZIP / KML 파일만 불러올 수 있습니다.'); hideLoading(); return;
     }
-    if (!kmlText) { alert('KMZ 안에 .kml 파일이 없습니다.'); hideLoading(); return; }
 
     showLoading('데이터 읽는 중...');
     const xml = new DOMParser().parseFromString(kmlText, 'application/xml');
     const pts = [];
 
+    // KML 스타일 맵 (styleUrl -> 색·굵기). KML 색은 aabbggrr 순서. (Vmap.html 이식)
+    const styleColors = {}, styleWidths = {};
+    const kmlC2Hex = c => { c = (c||'').trim(); if (c.length < 8) return null; return '#' + c.slice(6,8) + c.slice(4,6) + c.slice(2,4); };
+    for (const st of Array.from(xml.getElementsByTagName('Style'))) {
+      const id = st.getAttribute('id'); if (!id) continue;
+      const cs = (st.getElementsByTagName('LineStyle')[0] || st.getElementsByTagName('PolyStyle')[0]);
+      const h = kmlC2Hex(cs?.getElementsByTagName('color')[0]?.textContent);
+      if (h) styleColors['#'+id] = h;
+      const w = parseFloat(cs?.getElementsByTagName('width')[0]?.textContent);
+      if (!isNaN(w)) styleWidths['#'+id] = w;
+    }
+    const parseCoords = raw => raw.trim().split(/\s+/).map(c => {
+      const p = c.split(','); const lo = parseFloat(p[0]), la = parseFloat(p[1]);
+      return (!isNaN(lo)&&!isNaN(la)&&Math.abs(lo)<=180&&Math.abs(la)<=90) ? toMerc(lo,la) : null;
+    }).filter(Boolean);
+
     for (const pm of Array.from(xml.getElementsByTagName('Placemark'))) {
       const name = pm.getElementsByTagName('name')[0]?.textContent?.trim() || pm.getElementsByTagName('n')[0]?.textContent?.trim() || '설명 없음';
-      const ls = pm.getElementsByTagName('LineString')[0];
       const pt = pm.getElementsByTagName('Point')[0];
 
-      let pf = '';
-      for (const d of Array.from(pm.getElementsByTagName('Data'))) {
-        if (d.getAttribute('name') === 'photoFile') { pf = d.getElementsByTagName('value')[0]?.textContent||''; break; }
-      }
-      if (!pf) {
-        const desc = pm.getElementsByTagName('description')[0]?.textContent||'';
-        const mImg = desc.match(/src=["']([^"']+\.(jpe?g|png))["']/i);
-        if (mImg) {
-          const thumbPath = mImg[1].trim(), rollPath = thumbPath.replace('_thumb.','_roll.');
-          const rollEntry = keys.find(z => { const c = z.replace(/\0/g,''); return c===rollPath||c.endsWith('/'+rollPath.split('/').pop()); });
-          pf = rollEntry ? rollPath : thumbPath;
+      // ── CAD 문자(kind=text): 마커 대신 회전 텍스트 라벨만 ──
+      if (pt) {
+        let _kind = '';
+        for (const d of Array.from(pm.getElementsByTagName('Data'))) {
+          if (d.getAttribute('name') === 'kind') { _kind = (d.getElementsByTagName('value')[0]?.textContent || '').trim(); break; }
+        }
+        if (_kind === 'text') {
+          const raw = pt.getElementsByTagName('coordinates')[0]?.textContent || '';
+          const p = raw.trim().split(','); const lo = parseFloat(p[0]), la = parseFloat(p[1]);
+          if (!isNaN(lo) && !isNaN(la) && Math.abs(lo) <= 180 && Math.abs(la) <= 90) {
+            let _rot = 0, _col = '';
+            for (const d of Array.from(pm.getElementsByTagName('Data'))) {
+              const nm = d.getAttribute('name'); const v = d.getElementsByTagName('value')[0]?.textContent || '';
+              if (nm === 'rot') _rot = parseFloat(v) || 0; else if (nm === 'color') _col = v.trim();
+            }
+            const c = toMerc(lo, la); pts.push(c);
+            addTextLabelV(c, name, _rot, _col);
+          }
+          continue;
         }
       }
 
-      if (ls) {
-        const raw = ls.getElementsByTagName('coordinates')[0]?.textContent||'';
-        const cs = raw.trim().split(/\s+/).map(c => {
-          const p = c.split(','); const lo = parseFloat(p[0]), la = parseFloat(p[1]);
-          return (!isNaN(lo)&&!isNaN(la)&&Math.abs(lo)<=180&&Math.abs(la)<=90) ? toMerc(lo,la) : null;
-        }).filter(Boolean);
-        if (cs.length >= 2) { const lyr = mkLineLyr(cs, randColor(), 4); lyr._name = name; addLyr(lyr); polylines.push(lyr); pts.push(...cs); }
-      } else if (pt) {
+      // ── 선/폴리곤 도형 전부 수집 (MultiGeometry 안의 모든 LineString + Polygon 링) ──
+      const coordArrays = [];
+      for (const lsEl of Array.from(pm.getElementsByTagName('LineString'))) {
+        const cs = parseCoords(lsEl.getElementsByTagName('coordinates')[0]?.textContent || '');
+        if (cs.length >= 2) coordArrays.push(cs);
+      }
+      for (const pgEl of Array.from(pm.getElementsByTagName('Polygon'))) {
+        for (const lr of Array.from(pgEl.getElementsByTagName('LinearRing'))) {
+          const cs = parseCoords(lr.getElementsByTagName('coordinates')[0]?.textContent || '');
+          if (cs.length >= 2) coordArrays.push(cs);
+        }
+      }
+
+      if (coordArrays.length) {
+        const su = pm.getElementsByTagName('styleUrl')[0]?.textContent?.trim();
+        const color = (su && styleColors[su]) || randColor();
+        const sw = (su && styleWidths[su] != null) ? Math.max(1, styleWidths[su]) : 4; // KMZ 굵기(없으면 4)
+        // Placemark 하나(MultiGeometry 포함)의 모든 선을 레이어 1개에 — 수천 선 KMZ 경량화
+        const lyr = mkMultiLineLyr(coordArrays, color, sw);
+        lyr._name = name; addLyr(lyr); polylines.push(lyr);
+        for (const cs of coordArrays) pts.push(...cs);
+        continue;
+      }
+
+      // ── 점(사진/마커) ──
+      if (pt) {
+        let pf = '';
+        for (const d of Array.from(pm.getElementsByTagName('Data'))) {
+          if (d.getAttribute('name') === 'photoFile') { pf = d.getElementsByTagName('value')[0]?.textContent||''; break; }
+        }
+        if (!pf) {
+          const desc = pm.getElementsByTagName('description')[0]?.textContent||'';
+          const mImg = desc.match(/src=["']([^"']+\.(jpe?g|png))["']/i);
+          if (mImg) {
+            const thumbPath = mImg[1].trim(), rollPath = thumbPath.replace('_thumb.','_roll.');
+            const rollEntry = keys.find(z => { const c = z.replace(/\0/g,''); return c===rollPath||c.endsWith('/'+rollPath.split('/').pop()); });
+            pf = rollEntry ? rollPath : thumbPath;
+          }
+        }
         const raw = pt.getElementsByTagName('coordinates')[0]?.textContent||'';
         const p = raw.trim().split(','); const lo = parseFloat(p[0]), la = parseFloat(p[1]);
         if (isNaN(lo)||isNaN(la)||Math.abs(lo)>180||Math.abs(la)>90) continue;
         const c = toMerc(lo, la); pts.push(c);
-        if (pf) {
+        if (pf && zip) {
           const base = pf.split('/').pop(); let zipF = null;
           for (const k of keys) {
             const ck = k.replace(/\0/g,'');
@@ -1496,8 +1769,10 @@ async function exportKMZ(scope = 'all') {
   const extent = scope === 'view' ? vmap.getView().calculateExtent(vmap.getSize()) : null;
   const inView = c => !extent || ol.extent.containsCoordinate(extent, c);
   const expMarkers = markers.filter(m => inView(m.feat.getGeometry().getCoordinates()));
-  const expPolylines = polylines.filter(lyr => !extent || getCoords(lyr).some(inView));
-  if (expMarkers.length === 0 && expPolylines.length === 0) {
+  // 묶음선(멀티피처)은 어느 피처든 화면에 걸치면 포함 (coordParts — 첫 피처만 보면 유실)
+  const expPolylines = polylines.filter(lyr => !extent || coordParts(lyr).some(cs => cs.some(inView)));
+  const expLabels = textLabelsV.filter(t => inView(t.coord));
+  if (expMarkers.length === 0 && expPolylines.length === 0 && expLabels.length === 0) {
     alert(scope === 'view' ? '현재 화면에 보이는 객체가 없습니다.' : '저장할 객체가 없습니다.');
     return;
   }
@@ -1520,11 +1795,11 @@ async function exportKMZ(scope = 'all') {
     let kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${esc(fileName)}</name>\n`;
     const usedFn = new Set();
 
-    for (const lyr of expPolylines) {
-      const sn = esc(lyr._name || '선');
-      const coords = getCoords(lyr).map(c => { const ll = fromMerc(c); return `${ll[0]},${ll[1]},0`; }).join(' ');
-      kml += `<Placemark><name>${sn}</name><LineString><coordinates>${coords}</coordinates></LineString></Placemark>\n`;
-    }
+    const styles = new Map();
+    let lineKml = '';
+    for (const lyr of expPolylines) lineKml += _lineKmlPlacemarkV(lyr, styles);
+    for (const t of expLabels) lineKml += _textKmlPlacemarkV(t);
+    kml += _lineKmlStyleDefsV(styles) + lineKml + '\n';
     for (const m of expMarkers) {
       const ll = fromMerc(m.feat.getGeometry().getCoordinates());
       const sn = esc(m.name);
@@ -1599,6 +1874,7 @@ document.getElementById('clearBtn').onclick = () => {
   closeAllPopups();
   markers.forEach(m => removeLyr(m.lyr)); markers = [];
   polylines.forEach(l => removeLyr(l)); polylines = [];
+  clearTextLabelsV();
   if (drawing) endDraw();
   document.getElementById('saveBtn').disabled = true;
   autoSaveToDB();
