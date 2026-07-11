@@ -278,7 +278,7 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 <!-- 사진 정보/메타 수정 모달 -->
 <div id="photoInfoModal">
   <div id="photoInfoBox">
-    <h3>📷 사진 정보 <span style="font-size:11px;color:#bbb;font-weight:400">v3</span></h3>
+    <h3>📷 사진 정보 <span style="font-size:11px;color:#bbb;font-weight:400">v4</span></h3>
     <label>제목</label>
     <input type="text" id="piTitle" maxlength="80">
     <label>설명</label>
@@ -1614,17 +1614,20 @@ async function loadImage(file, getNG, setNG) {
       const meta = readPhotoMeta(src);
       let ll = (meta.lat != null) ? [meta.lng, meta.lat] : null;
 
-      // 방금 촬영한 사진 판별: GPS 없음 + 파일 시각이 1분 이내.
-      // (📂 → 카메라 촬영은 브라우저가 GPS 를 안 넣고 임시파일이라 갤러리에도 안 남음)
-      const justCaptured = !ll && (Date.now() - file.lastModified < 60000);
+      // 방금 촬영한 사진 판별: 파일 시각이 1분 이내 (📂 → 카메라 촬영).
+      // 촬영본은 임시파일이라 갤러리에 안 남음 → GPS 유무와 무관하게 기기에 저장한다.
+      // (과거엔 'GPS 없음' 조건이 있어서 카메라가 GPS 를 넣어주는 폰은 저장이 통째로 건너뛰어졌음)
+      const justCaptured = (Date.now() - file.lastModified < 60000);
       if (justCaptured) {
-        // 현재 위치(실패 시 지도 중심) + 촬영일시를 EXIF 에 기록하고 기기에 저장 (카메라앱처럼)
-        const pos = await new Promise(res => navigator.geolocation
-          ? navigator.geolocation.getCurrentPosition(p => res(p), () => res(null), { enableHighAccuracy: true, timeout: 5000 })
-          : res(null));
-        let lat, lng;
-        if (pos) { lat = pos.coords.latitude; lng = pos.coords.longitude; }
-        else { const c = fromMerc(vmap.getView().getCenter()); lng = c[0]; lat = c[1]; }
+        let lat = meta.lat, lng = meta.lng;
+        if (lat == null) {
+          // GPS 없으면 현재 위치(실패 시 지도 중심)를 EXIF 에 기록
+          const pos = await new Promise(res => navigator.geolocation
+            ? navigator.geolocation.getCurrentPosition(p => res(p), () => res(null), { enableHighAccuracy: true, timeout: 5000 })
+            : res(null));
+          if (pos) { lat = pos.coords.latitude; lng = pos.coords.longitude; }
+          else { const c = fromMerc(vmap.getView().getCenter()); lng = c[0]; lat = c[1]; }
+        }
         const taken = meta.taken || exifNow(new Date(file.lastModified));
         name = 'IMG_' + taken.replace(/[: ]/g, '');
         src = writePhotoMeta(src, { lat, lng, taken });
@@ -2173,7 +2176,15 @@ document.getElementById('piDownloadBtn').onclick = async () => {
   const args = { title: t.name, desc: t.desc || '', lat: ll[1], lng: ll[0] };
   if (t.taken) args.taken = t.taken;
   const orig = await getOrig(t.origKey);
-  downloadPhoto(writePhotoMeta(orig || t.imgSrc, args), t.name);
+  const out = writePhotoMeta(orig || t.imgSrc, args);
+  downloadPhoto(out, t.name);
+  // 저장한 파일의 메타를 다시 읽어 확인 표시 (어디서 유실되는지 진단)
+  const chk = readPhotoMeta(out);
+  const fmt = out.slice(5, out.indexOf(';'));
+  alert('저장된 사진 메타 확인\n형식: ' + fmt + (orig ? ' (원본 기준)' : ' (원본 없음 → 압축본 기준)')
+    + '\n제목: ' + (chk.title || '-')
+    + '\n촬영일시: ' + (chk.taken || '-')
+    + '\n위치: ' + (chk.lat != null ? chk.lat.toFixed(5) + ', ' + chk.lng.toFixed(5) : '-'));
 };
 // 사진 팝업의 ℹ️ 버튼 → 정보 모달
 function photoInfoFromPop(btn) {
