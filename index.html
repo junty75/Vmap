@@ -1605,8 +1605,11 @@ function openShareLocation(lat, lng) {
   bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
   bg.querySelector('.share-cancel').onclick = () => bg.remove();
   bg.querySelector('.share-ok').onclick = async () => {
-    const url = 'https://map.kakao.com/link/map/' + encodeURIComponent(addr || '공유 위치') + ',' + lat + ',' + lng;
-    const text = '📍 ' + (addr || coordTxt);
+    // 링크는 좌표만 사용 — 이름(주소)을 넣으면 URL 인코딩된 긴 링크가 그대로 보임.
+    // 문구의 주소도 짧게(읍면동 이하 3마디)만 표시.
+    const shortAddr = addr ? addr.split(' ').slice(-3).join(' ') : '';
+    const url = 'https://map.kakao.com/link/map/' + lat.toFixed(6) + ',' + lng.toFixed(6);
+    const text = '📍 ' + (shortAddr || coordTxt);
     bg.remove();
     if (navigator.share) {
       try { await navigator.share({ title: '위치 공유', text, url }); } catch(e) {}   // 사용자가 공유 취소해도 무시
