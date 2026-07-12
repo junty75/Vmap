@@ -204,7 +204,7 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 
 <!-- 플로팅 버튼 -->
 <button class="btn" id="saveBtn" title="KMZ로 저장" disabled>💾</button>
-<button class="btn" id="loadBtn" title="KMZ 불러오기">📂</button>
+<button class="btn" id="loadBtn" title="KMZ / 사진 불러오기">📂</button>
 <button class="btn" id="myLocationBtn" title="현재 위치">
   <svg viewBox="0 0 24 24" fill="none">
     <circle cx="12" cy="12" r="4" stroke="#1a73e8" stroke-width="2"/>
@@ -235,7 +235,7 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
     <option value="GRAY">회색지도</option>
   </select>
 </div>
-<input type="file" id="fileInput" accept="application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml,application/zip,.kmz,.kml,.zip" multiple>
+<input type="file" id="fileInput" accept=".kmz,.zip,.kml,image/jpeg,image/png,.jpg,.jpeg,.png" multiple>
 
 <!-- 조준원 -->
 <div id="crosshair"></div>
@@ -1602,49 +1602,18 @@ async function loadImage(file, getNG, setNG) {
   return new Promise(resolve => {
     const r = new FileReader();
     r.onload = async ev => {
-      let src = ev.target.result, name = file.name.replace(/\.[^/.]+$/, '');
+      const src = ev.target.result, name = file.name.replace(/\.[^/.]+$/, '');
+      // index.html 과 동일한 단순 경로: EXIF GPS 만 읽고 마커 추가.
+      // 촬영 판정·현재위치 조회·EXIF 기록·기기 저장은 하지 않는다 (지도 백화 유발 이력).
       const meta = readPhotoMeta(src);
-      // exifr 폴백: 삼성 등 일부 폰 카메라 JPEG 은 piexif 가 GPS 를 못 읽음
-      if (meta.lat == null && window.exifr) {
-        try {
-          const g = await exifr.gps(file);
-          if (g && g.latitude != null && (g.latitude !== 0 || g.longitude !== 0)) { meta.lat = g.latitude; meta.lng = g.longitude; }
-        } catch(e) {}
-      }
-      if (!meta.taken && window.exifr) {
-        try { const p = await exifr.parse(file, ['DateTimeOriginal']); if (p && p.DateTimeOriginal) meta.taken = exifNow(new Date(p.DateTimeOriginal)); } catch(e) {}
-      }
-      let ll = (meta.lat != null) ? [meta.lng, meta.lat] : null;
+      const ll = (meta.lat != null) ? [meta.lng, meta.lat] : null;
 
-      // 방금 촬영한 사진 판별: 파일 시각이 1분 이내 (📂 → 카메라 촬영).
-      // 촬영본은 임시파일이라 갤러리에 안 남음 → 기기에 1회 저장한다.
-      const justCaptured = (Date.now() - file.lastModified < 60000);
-      if (justCaptured) {
-        const taken = meta.taken || exifNow(new Date(file.lastModified));
-        name = 'IMG_' + taken.replace(/[: ]/g, '');
-        if (meta.lat == null) {
-          // GPS 없을 때만 현재 위치(실패 시 지도 중심)를 EXIF 에 기록.
-          // 카메라가 GPS 를 넣어준 경우엔 EXIF 를 절대 건드리지 않는다.
-          const pos = await new Promise(res => navigator.geolocation
-            ? navigator.geolocation.getCurrentPosition(p => res(p), () => res(null), { enableHighAccuracy: true, timeout: 5000 })
-            : res(null));
-          let lat, lng;
-          if (pos) { lat = pos.coords.latitude; lng = pos.coords.longitude; }
-          else { const c = fromMerc(vmap.getView().getCenter()); lng = c[0]; lat = c[1]; }
-          src = writePhotoMeta(src, { lat, lng, taken });
-          meta.lat = lat; meta.lng = lng;
-          ll = [lng, lat];
-        }
-        meta.taken = taken;
-        // 메타 입력창이 없으므로 촬영본은 여기서 바로 1회 기기 저장 (위치·날짜 EXIF 포함)
-        downloadPhoto(src, name);
-      }
-
-      // 지도 마커·메모리에는 압축 표시본만 사용 (원본 dataURL 은 지도 멈춤/탭 크래시 유발)
+      // 대량 사진 대비 메모리 절약: 마커에는 압축 표시본만 사용.
+      // GPS·촬영일시 EXIF 는 압축본에도 복사되므로 KMZ 저장에 그대로 유지됨.
       let dispSrc = src;
       try {
-        dispSrc = await compressImage(src);   // EXIF(GPS·날짜)는 압축본에도 복사됨
-        _compressCache.delete(src);
+        dispSrc = await compressImage(src);
+        _compressCache.delete(src);   // 원본 키 캐시(대용량 문자열) 즉시 해제
       } catch(e) {}
 
       const setMeta = obj => { obj.taken = meta.taken || ''; obj.desc = meta.desc || ''; };
