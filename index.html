@@ -612,14 +612,36 @@ function initMap(lat, lng, zoom) {
   const vp = vmap.getViewport();
 
   let touchDrawStartX = 0, touchDrawStartY = 0;
+  let mapPressTimer = null, pressX = 0, pressY = 0;
   vp.addEventListener('pointerdown', e => {
     if (e.pointerType === 'touch') {
       touchDrawStartX = e.clientX;
       touchDrawStartY = e.clientY;
     }
+    // 지도 길게 누르기(600ms) → 위치 공유. 두 번째 손가락(핀치)이 닿으면 취소.
+    clearTimeout(mapPressTimer);
+    if (e.pointerType === 'touch' && e.isPrimary && !drawing && !markerPlacingMode) {
+      pressX = e.clientX; pressY = e.clientY;
+      const rect = vp.getBoundingClientRect();
+      const pixel = [
+        (e.clientX - rect.left) * (vp.offsetWidth / rect.width),
+        (e.clientY - rect.top)  * (vp.offsetHeight / rect.height)
+      ];
+      mapPressTimer = setTimeout(() => {
+        const coord = vmap.getCoordinateFromPixel(pixel);
+        if (coord) { const ll = fromMerc(coord); openShareLocation(ll[1], ll[0]); }
+      }, 600);
+    }
   }, { passive: true });
+  vp.addEventListener('pointermove', e => {
+    if (mapPressTimer && (Math.abs(e.clientX - pressX) > 8 || Math.abs(e.clientY - pressY) > 8)) {
+      clearTimeout(mapPressTimer); mapPressTimer = null;
+    }
+  }, { passive: true });
+  vp.addEventListener('pointercancel', () => { clearTimeout(mapPressTimer); mapPressTimer = null; }, { passive: true });
 
   vp.addEventListener('pointerup', e => {
+    clearTimeout(mapPressTimer); mapPressTimer = null;
     if (e.pointerType === 'touch') {
       const dx = e.clientX - touchDrawStartX;
       const dy = e.clientY - touchDrawStartY;
@@ -1551,6 +1573,50 @@ function startLocationWatchIfNeeded() {
     locationMode = 0;
     applyLocationMode();
   }, { enableHighAccuracy: true, maximumAge: 3000 });
+}
+
+/* ════════════════════════════════
+   위치 공유 (지도 길게 누르기)
+════════════════════════════════ */
+// 확인창에서 '공유'를 누르면 안드로이드 공유 시트(navigator.share)가 열리고
+// 카카오톡을 선택하면 카카오맵 위치 링크가 전송된다. 미지원 브라우저는 링크 복사.
+function openShareLocation(lat, lng) {
+  const bg = document.createElement('div');
+  bg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9000;display:flex;align-items:center;justify-content:center;';
+  const coordTxt = lat.toFixed(6) + ', ' + lng.toFixed(6);
+  bg.innerHTML =
+    '<div style="background:white;border-radius:14px;padding:20px;width:290px;box-shadow:0 4px 24px rgba(0,0,0,0.25);">' +
+    '<h3 style="margin:0 0 10px;font-size:16px;color:#333;">📍 위치 공유</h3>' +
+    '<div class="share-addr" style="font-size:13px;color:#555;margin-bottom:4px;word-break:keep-all;">주소 확인 중...</div>' +
+    '<div style="font-size:12px;color:#999;margin-bottom:14px;">' + coordTxt + '</div>' +
+    '<div style="display:flex;gap:8px;">' +
+    '<button class="share-ok" style="flex:1;padding:12px;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;background:#fee500;color:#191919;">공유</button>' +
+    '<button class="share-cancel" style="flex:1;padding:12px;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;background:#f1f3f4;color:#555;">취소</button>' +
+    '</div></div>';
+  document.body.appendChild(bg);
+  let addr = '';
+  const addrEl = bg.querySelector('.share-addr');
+  jsonp(`https://api.vworld.kr/req/address?service=address&request=getAddress&version=2.0&crs=epsg:4326&point=${lng},${lat}&type=parcel&format=json&key=${VWORLD_KEY}`)
+    .then(d => {
+      addr = (d?.response?.status === 'OK' && d.response.result?.[0]?.text) || '';
+      if (addrEl) addrEl.textContent = addr || '주소 정보 없음';
+    })
+    .catch(() => { if (addrEl) addrEl.textContent = '주소 정보 없음'; });
+  bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
+  bg.querySelector('.share-cancel').onclick = () => bg.remove();
+  bg.querySelector('.share-ok').onclick = async () => {
+    const url = 'https://map.kakao.com/link/map/' + encodeURIComponent(addr || '공유 위치') + ',' + lat + ',' + lng;
+    const text = '📍 ' + (addr || coordTxt);
+    bg.remove();
+    if (navigator.share) {
+      try { await navigator.share({ title: '위치 공유', text, url }); } catch(e) {}   // 사용자가 공유 취소해도 무시
+    } else {
+      try {
+        await navigator.clipboard.writeText(text + '\n' + url);
+        alert('이 브라우저는 공유 시트를 지원하지 않아 링크를 복사했습니다.\n카카오톡 대화창에 붙여넣기 하세요.');
+      } catch(e) { prompt('아래 링크를 복사해 카카오톡에 붙여넣기 하세요.', url); }
+    }
+  };
 }
 
 /* ════════════════════════════════
