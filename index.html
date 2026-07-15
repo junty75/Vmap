@@ -624,6 +624,8 @@ function initMap(lat, lng, zoom) {
 
   let touchDrawStartX = 0, touchDrawStartY = 0;
   let mapPressTimer = null, pressX = 0, pressY = 0;
+  // 선/마커 메뉴가 열릴 때 위치공유 길게누르기 타이머 취소용 (mapRightClick 에서 사용)
+  window.cancelMapPressV = () => { clearTimeout(mapPressTimer); mapPressTimer = null; };
   vp.addEventListener('pointerdown', e => {
     if (e.pointerType === 'touch') {
       touchDrawStartX = e.clientX;
@@ -639,6 +641,18 @@ function initMap(lat, lng, zoom) {
         (e.clientY - rect.top)  * (vp.offsetHeight / rect.height)
       ];
       mapPressTimer = setTimeout(() => {
+        mapPressTimer = null;
+        // 마커/선 '근처' 길게누르기 = 수정/삭제 메뉴 (contextmenu 미발생 기기 대비,
+        // 선을 픽셀 단위로 정확히 안 눌러도 선택되도록 허용 반경 확대)
+        let hitMk = false;
+        vmap.forEachFeatureAtPixel(pixel, feat => {
+          if (hitMk) return;
+          const m = markers.find(mk => mk.feat === feat);
+          if (m) { hitMk = true; openMarkerEditModalObj(m); }
+        }, { hitTolerance: 20 });
+        if (hitMk) return;
+        const nearPoly = findNearPoly(pixel, 22);
+        if (nearPoly) { showPolyMenu(pressX, pressY, nearPoly); return; }
         const coord = vmap.getCoordinateFromPixel(pixel);
         if (coord) { const ll = fromMerc(coord); openShareLocation(ll[1], ll[0]); }
       }, 600);
@@ -836,7 +850,10 @@ function initMap(lat, lng, zoom) {
 // 해결: 실제 터치(사용자 활성화) 시점에 히스토리 항목을 재보충해 두면
 // 뒤로가기가 반드시 페이지 안에서 소비되어 popstate(되돌리기)가 동작한다.
 let _histRearm = true;   // 로드 직후·뒤로가기 소비 직후 = 재보충 필요
-document.addEventListener('pointerdown', (e) => {
+// 반드시 pointerup 시점에 push 할 것 — 터치 기기에서 pointerdown(=touchstart)은
+// "사용자 활성화"를 부여하지 않아(S22 등) push 항목이 여전히 뒤로가기에서 건너뛰어짐.
+// 활성화는 pointerup/touchend 에 부여되므로 이 시점의 push 만 확실히 살아남는다.
+document.addEventListener('pointerup', (e) => {
   if (!e.isPrimary) return;
   // 그리기 중에는 획/점마다 1개씩 보충 → 연속 뒤로가기(여러 번 되돌리기)에도 안 끊김
   if (_histRearm || drawing) {
@@ -956,12 +973,17 @@ function mapRightClick(e) {
     if (hitMk) return;
     const m = markers.find(mk => mk.feat === feat);
     if (m) { hitMk = true; openMarkerEditModalObj(m); }
-  }, { hitTolerance: 16 });
-  if (hitMk) return;
+  }, { hitTolerance: 20 });
+  if (hitMk) { if (window.cancelMapPressV) window.cancelMapPressV(); return; }
 
-  // 선 우클릭 → 수정/삭제 메뉴
-  const nearPoly = findNearPoly(px, 10);
-  if (nearPoly) { showPolyMenu(lastCX || e.clientX, lastCY || e.clientY, nearPoly); return; }
+  // 선 우클릭/길게누르기 → 수정/삭제 메뉴
+  // 허용 반경 10→22px 확대: 선을 픽셀 단위로 정확히 안 눌러도 선택되도록
+  const nearPoly = findNearPoly(px, 22);
+  if (nearPoly) {
+    if (window.cancelMapPressV) window.cancelMapPressV();   // 위치공유 타이머 중복 발동 방지
+    showPolyMenu(lastCX || e.clientX, lastCY || e.clientY, nearPoly);
+    return;
+  }
   // 빈 공간 우클릭 → 아무것도 안 함 (원본과 동일)
 }
 
