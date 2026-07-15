@@ -350,6 +350,11 @@ let polylines = [];  // ol.layer.Vector[]
 let drawing   = false, drawCoords = [], drawLayer = null;
 let guideLine = null, distOv = null, distEl = null;
 let suppressNextClick = false;
+let drawUndoV = [];   // 선그리기 되돌리기 스택: {type:'point'} 또는 {type:'stroke', lyr}
+let dragPanV = null;  // OL 지도 이동 인터랙션 (펜 자유곡선 중 잠금용)
+// S펜(스타일러스) 자유곡선 상태
+let penActiveV = false, penIdV = null, penMovedV = false;
+let penCoordsV = null, penLayerV = null, penStartX = 0, penStartY = 0, penLastXY = null;
 let polyTarget = null;
 let lastCX = 0, lastCY = 0;
 let lastAddr = '주소 없음', lastLL = null;
@@ -594,6 +599,7 @@ function initMap(lat, lng, zoom) {
   // 더블클릭 확대 비활성화
   vmap.getInteractions().forEach(i => {
     if (i instanceof ol.interaction.DoubleClickZoom) i.setActive(false);
+    if (i instanceof ol.interaction.DragPan) dragPanV = i;
   });
 
   // VWorld가 베이스 레이어를 비동기로 추가하므로 여러 번 정리 시도
@@ -660,6 +666,7 @@ function initMap(lat, lng, zoom) {
       if (drawing) {
         if (coord) {
           drawCoords.push(coord);
+          drawUndoV.push({ type: 'point' });
           refreshDraw();
           if (drawCoords.length >= 1) updateDistDisplay();
         }
@@ -691,6 +698,80 @@ function initMap(lat, lng, zoom) {
       }
     }
   });
+
+  // ─── S펜(스타일러스): 선그리기 모드에서 자유곡선 + 확실한 점찍기 ───────────
+  // 펜 탭(거의 안 움직임) = 점 하나 확실히 추가(OL click 감도 문제 우회),
+  // 펜을 끌면 = 자유곡선(획마다 별도 선). 손가락/마우스는 기존 동작 그대로.
+  function pixelFromEventV(cx, cy) {
+    const rect = vp.getBoundingClientRect();
+    return [
+      (cx - rect.left) * (vp.offsetWidth / rect.width),
+      (cy - rect.top)  * (vp.offsetHeight / rect.height)
+    ];
+  }
+  vp.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'pen' || !drawing) return;
+    penActiveV = true; penIdV = e.pointerId;
+    penStartX = e.clientX; penStartY = e.clientY;
+    penMovedV = false; penCoordsV = null; penLayerV = null;
+    penLastXY = { x: e.clientX, y: e.clientY };
+    clearTimeout(mapPressTimer); mapPressTimer = null;
+    if (dragPanV) dragPanV.setActive(false);   // 펜 사용 중엔 지도 이동 잠금(초기 흔들림 방지)
+    try { vp.setPointerCapture(e.pointerId); } catch (_) {}
+    e.preventDefault();
+  }, { passive: false });
+
+  vp.addEventListener('pointermove', e => {
+    if (!penActiveV || e.pointerId !== penIdV) return;
+    if (!penMovedV) {
+      if (Math.hypot(e.clientX - penStartX, e.clientY - penStartY) < 8) { e.preventDefault(); return; }
+      // 임계 초과 → 자유곡선 획 시작 (이번 획 전용 별도 레이어, 지도 이동 잠금)
+      penMovedV = true;
+      penCoordsV = [];
+      penLayerV = mkLineLyr([], currentDrawColor, currentDrawWidth);
+      addLyr(penLayerV);
+      const c0 = vmap.getCoordinateFromPixel(pixelFromEventV(penStartX, penStartY));
+      if (c0) penCoordsV.push(c0);
+    }
+    if (penLastXY && Math.abs(e.clientX - penLastXY.x) < 3 && Math.abs(e.clientY - penLastXY.y) < 3) { e.preventDefault(); return; }
+    const coord = vmap.getCoordinateFromPixel(pixelFromEventV(e.clientX, e.clientY));
+    if (coord) { penCoordsV.push(coord); penRefreshV(); }
+    penLastXY = { x: e.clientX, y: e.clientY };
+    e.preventDefault();
+  }, { passive: false });
+
+  function endPenV(e) {
+    if (!penActiveV || (e && e.pointerId !== penIdV)) return;
+    penActiveV = false; penIdV = null;
+    try { vp.releasePointerCapture(e.pointerId); } catch (_) {}
+    if (dragPanV) dragPanV.setActive(true);   // 지도 이동 잠금 해제
+    if (penMovedV) {
+      // 자유곡선 획 확정 — 각기 다른 선(별도 레이어)으로 저장
+      if (penCoordsV && penCoordsV.length >= 2) {
+        penLayerV._coords = penCoordsV.slice();
+        polylines.push(penLayerV);
+        drawUndoV.push({ type: 'stroke', lyr: penLayerV });
+        document.getElementById('saveBtn').disabled = false;
+        autoSaveToDB();
+      } else if (penLayerV) removeLyr(penLayerV);
+      penLayerV = null; penCoordsV = null; penMovedV = false;
+      clearGuide();
+    } else {
+      // 탭 = 점 하나 확실히 추가 (OL click 에 의존하지 않아 펜 감도 문제 해결)
+      const coord = vmap.getCoordinateFromPixel(pixelFromEventV(e.clientX, e.clientY));
+      if (coord) {
+        drawCoords.push(coord);
+        drawUndoV.push({ type: 'point' });
+        refreshDraw();
+        updateDistDisplay();
+      }
+    }
+    suppressNextClick = true;                       // 뒤따르는 OL click 중복 방지
+    setTimeout(() => { suppressNextClick = false; }, 350);
+    if (e) e.preventDefault();
+  }
+  vp.addEventListener('pointerup', endPenV, { passive: false });
+  vp.addEventListener('pointercancel', endPenV, { passive: false });
 
   // 줌 버튼 (최대 줌 이후에는 CSS scale로 화면 확대 — +,- 버튼 전용)
   document.getElementById('zoomInBtn').onclick = () => {
@@ -725,21 +806,32 @@ function initMap(lat, lng, zoom) {
 }
 
 
-// 뒤로가기 = 절대 앱 종료 안 함. 항상 forward()로 복귀.
-// 선그리기 중: 점 삭제 또는 모드 종료
-// addEventListener 사용: window.onpopstate 방식은 외부 라이브러리가 덮어쓸 수 있어서 불안정함
-let _ignoreNextPop = false;
-
+// 뒤로가기 = 절대 앱 종료 안 함. 선그리기 중: 점/펜획 되돌리기 또는 모드 종료
+// 기기(갤럭시 액티브탭 등)에 따라 history.forward() 가 먹지 않아 뒤로가기 시 앱이
+// 종료되던 문제 → popstate 마다 즉시 상태를 다시 push 해서 항상 뒤로 갈 여분을 남긴다.
 window.removeEventListener('popstate', _earlyBackHandler); // 초기 임시 핸들러 제거
 window.addEventListener('popstate', function() {
-  if (_ignoreNextPop) { _ignoreNextPop = false; return; }
+  history.pushState({ k: 2 }, '', '');   // 소비된 히스토리 즉시 재보충(앱 종료 방지)
   if (drawing) {
-    if (drawCoords.length > 0) { drawCoords.pop(); refreshDraw(); }
-    else { endDraw(); }
+    if (drawUndoV.length > 0) undoLastActionV();
+    else endDraw();
   }
-  _ignoreNextPop = true;
-  window.history.forward();
 });
+
+// 되돌리기: 마지막 동작(탭 점 1개 또는 펜 획 1개) 취소
+function undoLastActionV() {
+  const act = drawUndoV.pop();
+  if (!act) return;
+  if (act.type === 'stroke') {
+    if (act.lyr) { removeLyr(act.lyr); polylines = polylines.filter(p => p !== act.lyr); }
+    clearAllGuide();
+    if (markers.length === 0 && polylines.length === 0) document.getElementById('saveBtn').disabled = true;
+    autoSaveToDB();
+    return;
+  }
+  // 탭 점 하나 제거
+  if (drawCoords.length > 0) { drawCoords.pop(); refreshDraw(); }
+}
 
 window.onload = () => {
   // iOS 배너
@@ -779,6 +871,7 @@ function mapClick(evt) {
   if (suppressNextClick) { suppressNextClick = false; return; }
   if (drawing) {
     drawCoords.push(evt.coordinate);
+    drawUndoV.push({ type: 'point' });
     refreshDraw();
     if (drawCoords.length >= 1) updateDistDisplay();
     return;
@@ -1057,7 +1150,7 @@ function toggleDraw() { drawing ? endDraw() : startDraw(); }
 
 function startDraw() {
   if (drawing) return;
-  drawing = true; drawCoords = [];
+  drawing = true; drawCoords = []; drawUndoV = [];
   drawLayer = mkLineLyr([], currentDrawColor, currentDrawWidth);
   addLyr(drawLayer);
   document.getElementById('vmap').classList.add('draw-mode');
@@ -1080,7 +1173,10 @@ function endDraw() {
     document.getElementById('saveBtn').disabled = false;
     autoSaveToDB();
   } else if (drawLayer) removeLyr(drawLayer);
-  drawLayer = null; drawCoords = [];
+  drawLayer = null; drawCoords = []; drawUndoV = [];
+  // 펜 자유곡선 도중 종료 대비: 지도 이동 잠금 해제
+  if (dragPanV) dragPanV.setActive(true);
+  penActiveV = false; penMovedV = false; penCoordsV = null; penLayerV = null;
 }
 
 function refreshDraw() {
@@ -1106,6 +1202,29 @@ function refreshDraw() {
   drawLayer._coords = drawCoords.slice();
   if (drawCoords.length > 0) updateDistDisplay();
   else clearAllGuide(); // 점이 0개면 거리 표시도 제거
+}
+
+// 펜 자유곡선 획 실시간 렌더 + 거리(✏️) 표시
+function penRefreshV() {
+  if (!penLayerV) return;
+  const src = penLayerV.getSource();
+  src.clear();
+  if (penCoordsV.length >= 2) {
+    const f = new ol.Feature(new ol.geom.LineString(penCoordsV));
+    f.setStyle(lineSt(currentDrawColor, currentDrawWidth));
+    src.addFeature(f);
+  }
+  penLayerV._color = currentDrawColor; penLayerV._width = currentDrawWidth;
+  penLayerV._coords = penCoordsV.slice();
+  if (penCoordsV.length) {
+    const fmt = d => d < 1000 ? Math.round(d) + 'm' : (d/1000).toFixed(2) + 'km';
+    let dist = 0;
+    for (let i = 1; i < penCoordsV.length; i++) dist += haversine(penCoordsV[i-1], penCoordsV[i]);
+    if (!distEl) { distEl = document.createElement('div'); distEl.className = 'dist-tip'; }
+    distEl.textContent = '✏️ 총 ' + fmt(dist);
+    if (!distOv) { distOv = new ol.Overlay({ element: distEl, offset: [8, -18], positioning: 'bottom-left' }); vmap.addOverlay(distOv); }
+    distOv.setPosition(penCoordsV[penCoordsV.length - 1]);
+  }
 }
 
 // 점 확정 후 거리 표시 (📍 총 거리)
