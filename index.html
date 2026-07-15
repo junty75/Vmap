@@ -20,7 +20,34 @@ history.pushState({k:2},'','');
 function _earlyBackHandler(){ history.forward(); }
 window.addEventListener('popstate', _earlyBackHandler);
 </script>
-<script src="https://map.vworld.kr/js/vworldMapInit.js.do?version=2.0&apiKey=55FD7275-A6F5-3B69-9966-CD4BFA2FD35F"></script>
+<!-- ── API 키: 사용자별 키를 최초 1회 입력받아 localStorage에 저장 ──
+     키 재입력: 주소 뒤에 ?resetkey 를 붙여 열기 -->
+<script>
+if (location.search.indexOf('resetkey') >= 0) localStorage.removeItem('vworld_key');
+function _askApiKey(storeKey, name, guide){
+  var k = localStorage.getItem(storeKey);
+  while (!k || !k.trim()) {
+    k = prompt(name + ' API 키를 입력하세요. (최초 1회, 이 기기에 저장됨)\n\n' + guide);
+    if (k === null) alert(name + ' 키가 없으면 지도를 표시할 수 없습니다.');
+  }
+  k = k.trim();
+  localStorage.setItem(storeKey, k);
+  return k;
+}
+function _apiKeyError(storeKey, name){
+  alert(name + ' 로딩 실패 — 키가 잘못되었을 수 있습니다. 키를 다시 입력하세요.');
+  localStorage.removeItem(storeKey);
+  location.reload();
+}
+var VWORLD_GUIDE = '[브이월드 인증키 발급]\n'
+  + '1. https://www.vworld.kr 회원가입/로그인\n'
+  + '2. 오픈API → 인증키 발급 → 개발키 신청\n'
+  + '3. 활용 URL 등 정보 입력 후 신청\n'
+  + '4. 발급된 인증키 복사 (형식: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX)';
+var VWORLD_KEY = _askApiKey('vworld_key', '브이월드(VWorld)', VWORLD_GUIDE);
+document.write('<script src="https://map.vworld.kr/js/vworldMapInit.js.do?version=2.0&apiKey=' + VWORLD_KEY
+  + '" onerror="_apiKeyError(\'vworld_key\',\'브이월드 지도\')"><\/script>');
+</script>
 <script src="https://cdn.jsdelivr.net/npm/piexifjs"></script>
 <!-- exifr: 삼성 등 일부 폰 카메라 JPEG 은 piexif 가 GPS 를 못 읽음 — 읽기 폴백 -->
 <script src="https://cdn.jsdelivr.net/npm/exifr/dist/full.umd.js"></script>
@@ -364,7 +391,7 @@ function applyScale(s) {
   el.style.transform = cssScale === 1 ? '' : `scale(${cssScale})`;
 }
 
-const VWORLD_KEY = '55FD7275-A6F5-3B69-9966-CD4BFA2FD35F';
+/* VWORLD_KEY는 <head>에서 localStorage 기반으로 선언됨 */
 
 /* ════════════════════════════════
    유틸
