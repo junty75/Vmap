@@ -35,14 +35,32 @@ document.write('<script src="https://map.vworld.kr/js/vworldMapInit.js.do?versio
 html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-serif;}
 #vmap{width:100%;height:100%;position:absolute;top:0;left:0;background:#222;}
 
-/* ── 상단 주소표시 ── */
+/* ── 주소표시 (우측 상단) ── */
 #address-display {
-  position:absolute;top:10px;left:10px;z-index:2000;
+  position:absolute;top:70px;right:72px;z-index:2000;
   background:rgba(0,0,0,0.62);color:white;font-size:13px;
   padding:5px 10px;border-radius:6px;pointer-events:auto;cursor:pointer;
-  white-space:nowrap;max-width:calc(100vw - 24px);
-  overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;max-width:calc(100vw - 96px);
+  overflow:hidden;text-overflow:ellipsis;text-align:right;
 }
+
+/* ── 검색 (좌측 상단, 좁게) ── */
+#searchBox{position:absolute;top:10px;left:10px;z-index:2100;width:176px;}
+#searchRow{display:flex;align-items:center;background:rgba(255,255,255,0.96);border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.3);overflow:hidden;}
+#searchInput{flex:1;min-width:0;border:none;outline:none;background:transparent;padding:7px 2px 7px 9px;font-size:16px;font-family:inherit;color:#222;}
+#searchInput::placeholder{color:#999;font-size:13px;}
+#searchGo,#searchClear{border:none;background:transparent;cursor:pointer;padding:0;flex-shrink:0;font-size:15px;color:#555;}
+#searchGo{width:32px;height:34px;}
+#searchClear{width:22px;height:34px;display:none;color:#aaa;font-size:16px;}
+#searchClear.show{display:block;}
+#searchResults{display:none;margin-top:5px;width:250px;max-width:calc(100vw - 20px);background:#fff;border-radius:8px;box-shadow:0 3px 14px rgba(0,0,0,0.3);max-height:46vh;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+#searchResults.show{display:block;}
+.sr-item{padding:8px 10px;border-bottom:1px solid #eee;cursor:pointer;}
+.sr-item:last-child{border-bottom:none;}
+.sr-item:active{background:#eef3fb;}
+.sr-t{font-size:13px;font-weight:600;color:#222;word-break:keep-all;}
+.sr-a{font-size:11px;color:#777;margin-top:2px;word-break:keep-all;}
+.sr-msg{padding:10px;font-size:12px;color:#888;text-align:center;}
 
 /* ── 플로팅 버튼 ── */
 .btn{
@@ -217,6 +235,16 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 
 <!-- 주소 표시 -->
 <div id="address-display" onclick="copyAndMark()" title="탭하면 주소 복사">위치 확인 중...</div>
+
+<!-- 검색 -->
+<div id="searchBox">
+  <div id="searchRow">
+    <input type="text" id="searchInput" placeholder="주소·장소 검색" autocomplete="off" enterkeyhint="search">
+    <button id="searchClear" title="지우기">✕</button>
+    <button id="searchGo" title="검색">🔍</button>
+  </div>
+  <div id="searchResults"></div>
+</div>
 
 <!-- 플로팅 버튼 -->
 <button class="btn" id="saveBtn" title="KMZ로 저장" disabled>💾</button>
@@ -597,6 +625,123 @@ function scheduleAddrUpdate(overrideLng, overrideLat) {
     } catch(e) { document.getElementById('address-display').textContent = ''; }
   }, 600);
 }
+
+/* ════════════════════════════════
+   검색 (VWorld Search API 2.0)
+════════════════════════════════ */
+// 지번주소 → 도로명주소 → 장소 순으로 모두 조회 후 합침
+const SEARCH_TYPES = [
+  { type: 'address', category: 'parcel' },
+  { type: 'address', category: 'road'   },
+  { type: 'place',   category: ''       }
+];
+
+function showSearchMsg(msg) {
+  const box = document.getElementById('searchResults');
+  box.innerHTML = '';
+  const d = document.createElement('div');
+  d.className = 'sr-msg';
+  d.textContent = msg;
+  box.appendChild(d);
+  box.classList.add('show');
+}
+function hideSearchResults() {
+  document.getElementById('searchResults').classList.remove('show');
+}
+
+async function vworldSearch(query, t) {
+  const url = `https://api.vworld.kr/req/search?service=search&request=search&version=2.0` +
+    `&crs=EPSG:4326&size=10&page=1&query=${encodeURIComponent(query)}&type=${t.type}` +
+    (t.category ? `&category=${t.category}` : '') +
+    `&format=json&errorformat=json&key=${VWORLD_KEY}`;
+  const d = await jsonp(url);
+  if (d?.response?.status !== 'OK') return [];
+  const items = d.response.result?.items || [];
+  return items.map(it => ({
+    title: it.title || it.address?.parcel || it.address?.road || '',
+    addr : (t.type === 'place') ? (it.address?.parcel || it.address?.road || '')
+                                : (it.address?.road || ''),
+    lng  : parseFloat(it.point?.x),
+    lat  : parseFloat(it.point?.y)
+  })).filter(r => r.title && isFinite(r.lng) && isFinite(r.lat));
+}
+
+let searchSeq = 0;
+async function doSearch() {
+  const q = document.getElementById('searchInput').value.trim();
+  if (!q) { hideSearchResults(); return; }
+  const seq = ++searchSeq;
+  showSearchMsg('검색 중...');
+  const settled = await Promise.allSettled(SEARCH_TYPES.map(t => vworldSearch(q, t)));
+  if (seq !== searchSeq) return;   // 더 최근 검색이 있으면 무시
+  const seen = new Set(), list = [];
+  settled.forEach(s => {
+    if (s.status !== 'fulfilled') return;
+    s.value.forEach(r => {
+      const k = r.lat.toFixed(6) + ',' + r.lng.toFixed(6);
+      if (seen.has(k)) return;
+      seen.add(k);
+      list.push(r);
+    });
+  });
+  renderSearchResults(list.slice(0, 20));
+}
+
+function renderSearchResults(list) {
+  if (!list.length) { showSearchMsg('검색 결과가 없습니다'); return; }
+  const box = document.getElementById('searchResults');
+  box.innerHTML = '';
+  list.forEach(r => {
+    const item = document.createElement('div');
+    item.className = 'sr-item';
+    const t = document.createElement('div');
+    t.className = 'sr-t';
+    t.textContent = r.title;
+    item.appendChild(t);
+    if (r.addr) {
+      const a = document.createElement('div');
+      a.className = 'sr-a';
+      a.textContent = r.addr;
+      item.appendChild(a);
+    }
+    item.addEventListener('click', () => moveToSearchResult(r));
+    box.appendChild(item);
+  });
+  box.classList.add('show');
+}
+
+function moveToSearchResult(r) {
+  hideSearchResults();
+  document.getElementById('searchInput').blur();
+  if (!vmap) return;
+  const v = vmap.getView();
+  v.setCenter(toMerc(r.lng, r.lat));
+  if ((v.getZoom() || 0) < 17) v.setZoom(17);
+  scheduleAddrUpdate(r.lng, r.lat);
+}
+
+(function initSearchUI() {
+  const input = document.getElementById('searchInput');
+  const clear = document.getElementById('searchClear');
+  if (!input) return;
+  const syncClear = () => clear.classList.toggle('show', !!input.value);
+  input.addEventListener('input', syncClear);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); doSearch(); }
+    else if (e.key === 'Escape') { hideSearchResults(); input.blur(); }
+  });
+  document.getElementById('searchGo').addEventListener('click', () => { input.blur(); doSearch(); });
+  clear.addEventListener('click', () => {
+    input.value = '';
+    syncClear();
+    hideSearchResults();
+    input.focus();
+  });
+  // 검색창 밖을 누르면 결과 닫기
+  document.addEventListener('pointerdown', e => {
+    if (!document.getElementById('searchBox').contains(e.target)) hideSearchResults();
+  }, true);
+})();
 
 /* ════════════════════════════════
    지도 초기화
