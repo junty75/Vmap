@@ -1593,9 +1593,17 @@ function addTextLabelV(coord, text, rot, color, h, ax, ay) {
     // h(CAD 문자 높이 m) 있으면 줌 연동 크기(dmap 방식).
     // 웹메르카토르는 위도만큼 축척 왜곡 -> 실제 m/px = resolution×cos(lat)
     const cosLat = Math.cos(ol.proj.toLonLat(coord)[1] * Math.PI / 180) || 1;
-    f.setStyle(function(feature, resolution) {
-      const px = h * 1.1 / (resolution * cosLat);   // 크기 보정 x1.1 (사용자 체감 확정값 — 여기 숫자만 바꾸면 됨)
-      if (px < 2) return null;                    // 너무 작으면 숨김
+    f.setStyle(function(a, b) {
+      // ⚠ OpenLayers 의 '피처 단위' 스타일 함수는 인자가 (resolution) 하나뿐이다.
+      //   (feature, resolution) 두 개를 받는 건 '레이어' 스타일 함수뿐.
+      //   전에는 (feature, resolution)으로 받아 resolution 이 undefined → px 가 NaN →
+      //   font:'bold NaNpx' 가 무시돼 캔버스 기본 글꼴로 고정 = 축소해도 글자가 안 줄었다.
+      //   두 형태 모두 안전하게 처리한다.
+      let res = (typeof b === 'number') ? b : (typeof a === 'number' ? a : NaN);
+      if (!(res > 0)) { try { res = vmap.getView().getResolution(); } catch (e) {} }
+      if (!(res > 0)) return null;
+      const px = h * 1.1 / (res * cosLat);   // 크기 보정 x1.1 (사용자 체감 확정값 — 여기 숫자만 바꾸면 됨)
+      if (!(px >= 2)) return null;                // 너무 작으면 숨김
       return new ol.style.Style({ text: new ol.style.Text({
         text: txt,
         font: 'bold ' + Math.min(px, 400) + 'px sans-serif',
