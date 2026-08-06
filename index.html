@@ -760,6 +760,41 @@ function initMap(lat, lng, zoom) {
   };
   vmap = new vw.ol3.Map('vmap', vw.ol3.MapOptions);
 
+  // ── 최대 확대 한 단계 늘리기 (브이월드 기본 19 → 20) ──────────────────────────
+  // 카카오(minLevel:0)의 최대 확대가 z20 상당이라 브이월드가 한 단계 낮았다.
+  // 막는 곳이 두 군데라 둘 다 풀어야 한다. (지도 생성 전에 손대면 생성 과정에서 초기화됨)
+  //   1) 뷰의 해상도 제한 → 뷰를 통째로 교체 (OL 3.19라 setMaxZoom 이 없음)
+  //   2) 마우스 휠 → 브이월드가 MouseWheelZoom.handleEvent 를 덮어쓰면서
+  //      vw.ol3.ViewConfig.MAXZOOM 을 직접 읽어 그 이상이면 그냥 return 해버린다.
+  //      (1)만 하면 +/- 버튼은 되는데 휠만 19에서 멈춘다.
+  // 타일 요청은 소스 tileGrid(최대 19)로 클램프되므로 19레벨 영상이 2배 확대돼 그려진다.
+  try {
+    const _v0  = vmap.getView();
+    const _z0  = _v0.getZoom() || 14;
+    const _res = (typeof _v0.getResolutions === 'function') ? _v0.getResolutions() : null;
+    // OL 3.19 에는 getMaxZoom/getMinZoom 이 없다 → 극단값을 넣어보고 되돌아온 값으로 범위 확인
+    _v0.setZoom(30);  const _max = _v0.getZoom();
+    _v0.setZoom(-10); const _min = _v0.getZoom();
+    _v0.setZoom(_z0);
+    const _opt = {
+      projection: _v0.getProjection(),
+      center    : _v0.getCenter(),
+      zoom      : _z0,
+      rotation  : _v0.getRotation() || 0
+    };
+    if (_res && _res.length) {          // resolutions 배열로 만들어진 뷰: 끝에 절반 해상도 한 단계 추가
+      const _ext = _res.slice();
+      _ext.push(_ext[_ext.length - 1] / 2);
+      _opt.resolutions = _ext;
+    } else {                            // 줌 범위로 만들어진 뷰: 최소는 그대로, 최대만 +1
+      _opt.minZoom = _min;
+      _opt.maxZoom = _max + 1;
+    }
+    vmap.setView(new ol.View(_opt));
+    if (vw.ol3.ViewConfig && typeof vw.ol3.ViewConfig.MAXZOOM === 'number')
+      vw.ol3.ViewConfig.MAXZOOM = _max + 1;      // 휠 줌 제한 해제 (핸들러가 실행 시점에 읽음)
+  } catch (e) { console.warn('최대 줌 확장 실패:', e); }
+
   // 더블클릭 확대 비활성화
   vmap.getInteractions().forEach(i => {
     if (i instanceof ol.interaction.DoubleClickZoom) i.setActive(false);
