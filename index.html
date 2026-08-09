@@ -1060,11 +1060,15 @@ function initMap(lat, lng, zoom) {
 
   _initTabChannel();   // 다른 탭이 '비켜달라'고 하면 받을 수 있게 먼저 열어 둔다
 
-  // DB 복원 — 복원이 끝난 뒤에 링크 수신을 시작한다(복원의 초기화가 받은 데이터를 지움)
-  loadKMZfromDB().then(async file => {
-    if (file) await loadKMZ(file, true);
-    _installLinkReceiver();
-  });
+  // DB 복원.
+  // ⚠ 수신부(_installLinkReceiver)는 복원 결과와 상관없이 '즉시' 걸어야 한다.
+  //   복원이 실패하거나 오래 걸리면 수신 대기가 안 걸려 런처 데이터를 못 받고 빈 지도가 된다.
+  //   → 수신은 바로 걸고, 받은 데이터는 복원이 끝난 뒤에 그린다(_restoreReady 대기).
+  const _restore = loadKMZfromDB()
+    .then(async file => { if (file) await loadKMZ(file, true); })
+    .catch(e => console.warn('이전 데이터 복원 실패 — 빈 지도로 시작', e));
+  window._restoreReady = Promise.race([_restore, new Promise(r => setTimeout(r, 15000))]);
+  _installLinkReceiver();
 }
 
 /* ─── 지도 탭 하나로 모으기 ────────────────────────────
@@ -1110,6 +1114,8 @@ function _installLinkReceiver() {
     loaded = true;
     window.removeEventListener('message', onMsg);
     try {
+      // 복원이 끝난 뒤에 그린다 — silent 복원의 초기화가 받은 데이터를 지우지 않게
+      try { await (window._restoreReady || Promise.resolve()); } catch (e) {}
       await _loadHtmData(d.payload || {});
       autoSaveToDB();                     // 앱을 다시 열어도 남아 있게
       _claimSingleTab();                  // 먼저 열려 있던 지도 탭들은 닫는다
