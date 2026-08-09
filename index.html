@@ -35,18 +35,22 @@ document.write('<script src="https://map.vworld.kr/js/vworldMapInit.js.do?versio
 html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-serif;}
 #vmap{width:100%;height:100%;position:absolute;top:0;left:0;background:#222;}
 
-/* ── 주소표시 (우측 상단) ── */
+/* ── 주소표시 (검색박스 바로 아래) ── */
 #address-display {
-  position:absolute;top:70px;right:72px;z-index:2000;
+  margin-top:5px;width:max-content;
   background:rgba(0,0,0,0.62);color:white;font-size:13px;
   padding:5px 10px;border-radius:6px;pointer-events:auto;cursor:pointer;
-  white-space:nowrap;max-width:calc(100vw - 96px);
-  overflow:hidden;text-overflow:ellipsis;text-align:right;
+  white-space:nowrap;max-width:calc(100vw - 20px);
+  overflow:hidden;text-overflow:ellipsis;text-align:left;
 }
+/* 주소를 못 찾아 빈 문자열이 들어가면 빈 검은 알약이 남는다 → 숨김 */
+#address-display:empty{display:none;}
 
 /* ── 검색 (좌측 상단, 좁게) ── */
-#searchBox{position:absolute;top:10px;left:10px;z-index:2100;width:176px;}
-#searchRow{display:flex;align-items:center;background:rgba(255,255,255,0.96);border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.3);overflow:hidden;}
+/* 세로 flex — 검색줄 / 주소표시 / 검색결과 순서로 쌓인다 */
+#searchBox{position:absolute;top:10px;left:10px;z-index:2100;width:176px;
+           display:flex;flex-direction:column;align-items:flex-start;}
+#searchRow{display:flex;align-items:center;width:100%;background:rgba(255,255,255,0.96);border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.3);overflow:hidden;}
 #searchInput{flex:1;min-width:0;border:none;outline:none;background:transparent;padding:7px 2px 7px 9px;font-size:16px;font-family:inherit;color:#222;}
 #searchInput::placeholder{color:#999;font-size:13px;}
 #searchGo,#searchClear{border:none;background:transparent;cursor:pointer;padding:0;flex-shrink:0;font-size:15px;color:#555;}
@@ -90,7 +94,12 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 #drawStyleBtn .dsb-line{width:26px;border-radius:3px;background:#FF0000;height:3px;}
 #markerBtn{top:184px;right:16px;padding:0;transition:background 0.2s;font-size:20px;}
 #markerBtn.active{background:#43a047;box-shadow:0 2px 8px rgba(67,160,71,0.6);}
+/* 빗자루 = 전체삭제 / 지우개 = 선택삭제 / 되돌리기 = 방금 지운 것 복구 */
 #clearBtn{top:240px;right:16px;padding:0;transition:background 0.2s;}
+#eraseBtn{top:240px;right:72px;padding:0;transition:background 0.2s;}
+#eraseBtn.active{background:#ffcdd2;box-shadow:0 2px 8px rgba(229,57,53,0.6);}
+#undoBtn{top:296px;right:72px;padding:0;display:none;font-size:20px;}
+#undoBtn.show{display:flex;}
 #cadastralBtn{top:296px;right:16px;padding:0;font-size:11px;font-weight:600;color:#555;}
 #cadastralBtn.active{background:#e8f5e9;box-shadow:0 2px 8px rgba(67,160,71,0.5);color:#2e7d32;}
 
@@ -233,21 +242,19 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 <!-- 지도 -->
 <div id="vmap"></div>
 
-<!-- 주소 표시 -->
-<div id="address-display" onclick="copyAndMark()" title="탭하면 주소 복사">위치 확인 중...</div>
-
-<!-- 검색 -->
+<!-- 검색 + 주소 표시 (주소는 검색박스 바로 아래) -->
 <div id="searchBox">
   <div id="searchRow">
     <input type="text" id="searchInput" placeholder="주소·장소 검색" autocomplete="off" enterkeyhint="search">
     <button id="searchClear" title="지우기">✕</button>
     <button id="searchGo" title="검색">🔍</button>
   </div>
+  <div id="address-display" onclick="copyAndMark()" title="탭하면 주소 복사">위치 확인 중...</div>
   <div id="searchResults"></div>
 </div>
 
 <!-- 플로팅 버튼 -->
-<button class="btn" id="saveBtn" title="KMZ로 저장" disabled>💾</button>
+<button class="btn" id="saveBtn" title="HTM으로 저장 / 공유" disabled>💾</button>
 <button class="btn" id="loadBtn" title="KMZ / HTM / 사진 불러오기">📂</button>
 <button class="btn" id="myLocationBtn" title="현재 위치">
   <svg viewBox="0 0 24 24" fill="none">
@@ -262,13 +269,15 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 <button class="btn" id="drawBtn" title="선 그리기">✏️</button>
 <button class="btn" id="drawStyleBtn" title="선 색상/굵기"><span class="dsb-line"></span></button>
 <button class="btn" id="markerBtn" title="마커 추가">📍</button>
-<button class="btn" id="clearBtn" title="화면 초기화">
+<button class="btn" id="clearBtn" title="전체 삭제 (빗자루)">🧹</button>
+<button class="btn" id="eraseBtn" title="지우개 — 눌러서 선택 삭제">
   <svg viewBox="0 0 24 24" fill="none" width="26" height="26">
     <path d="M20 20H7L3 16L13 6L21 14L20 20Z" fill="#ffcdd2" stroke="#e53935" stroke-width="1.8" stroke-linejoin="round"/>
     <path d="M13 6L21 14L17 18L9 10L13 6Z" fill="#ef9a9a" stroke="#e53935" stroke-width="1.8" stroke-linejoin="round"/>
     <line x1="4" y1="20" x2="20" y2="20" stroke="#e53935" stroke-width="2" stroke-linecap="round"/>
   </svg>
 </button>
+<button class="btn" id="undoBtn" title="방금 지운 것 되살리기">↩️</button>
 <button class="btn" id="cadastralBtn" onclick="toggleCadastral()" title="지적도">지적도</button>
 <!-- 지도종류 선택 -->
 <div id="mapTypeBox">
@@ -437,9 +446,17 @@ function hideLoading()    { document.getElementById('loading').classList.remove(
 
 function showDeleteHint() {
   if (hintShown) return; hintShown = true;
+  // deleteHint 요소는 지우개 토스트와 공용 → 문구를 매번 넣어준다
+  showToastMsg('길게 눌러서 마커 / 선을 삭제할 수 있어요');
+}
+// 하단 토스트 (deleteHint 요소 재사용)
+let _toastTimer = null;
+function showToastMsg(msg) {
   const el = document.getElementById('deleteHint');
+  el.textContent = msg;
   el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), 3000);
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
 }
 
 function openViewer(src, name) {
@@ -833,7 +850,7 @@ function initMap(lat, lng, zoom) {
     }
     // 지도 길게 누르기(600ms) → 위치 공유. 두 번째 손가락(핀치)이 닿으면 취소.
     clearTimeout(mapPressTimer);
-    if (e.pointerType === 'touch' && e.isPrimary && !drawing && !markerPlacingMode) {
+    if (e.pointerType === 'touch' && e.isPrimary && !drawing && !markerPlacingMode && !eraseMode) {
       pressX = e.clientX; pressY = e.clientY;
       const rect = vp.getBoundingClientRect();
       const pixel = [
@@ -877,6 +894,8 @@ function initMap(lat, lng, zoom) {
         (e.clientY - rect.top)  * (vp.offsetHeight / rect.height)
       ];
       const coord = vmap.getCoordinateFromPixel(pixel);
+      // 지우개 모드: 탭한 지점 근처 객체 삭제
+      if (eraseMode) { eraseAtCoord(coord); suppressNextClick = true; return; }
       if (drawing) {
         if (coord) {
           drawCoords.push(coord);
@@ -1166,6 +1185,8 @@ window.addEventListener('beforeinstallprompt', e => {
 function mapClick(evt) {
   if (evt.originalEvent?.pointerType === 'touch') return; // 터치는 pointerup에서 처리
   if (suppressNextClick) { suppressNextClick = false; return; }
+  // 지우개 모드: 클릭한 지점 근처 객체 삭제
+  if (eraseMode) { eraseAtCoord(evt.coordinate); return; }
   if (drawing) {
     drawCoords.push(evt.coordinate);
     drawUndoV.push({ type: 'point' });
@@ -1350,6 +1371,7 @@ document.getElementById('moveCancelBtn').onclick = () => {
    마커 추가 버튼 (조준원 모드)
 ════════════════════════════════ */
 document.getElementById('markerBtn').onclick = () => {
+  if (eraseMode) setEraseMode(false);   // 지우개와 동시 사용 금지
   if (markerPlacingMode) {
     // 두 번째 클릭 → 지도 중심 좌표로 마커 모달 열기
     markerPlacingMode = false;
@@ -1560,7 +1582,10 @@ function updateGuideDistDisplay(previewCoord) {
   distOv.setPosition(previewCoord);
 }
 
-document.getElementById('drawBtn').onclick = toggleDraw;
+document.getElementById('drawBtn').onclick = () => {
+  if (eraseMode) setEraseMode(false);   // 지우개와 동시 사용 금지
+  toggleDraw();
+};
 
 /* ════════════════════════════════
    선 메뉴
@@ -1698,7 +1723,8 @@ function addTextLabelV(coord, text, rot, color, h, ax, ay) {
       rotation: rad, rotateWithView: true, overflow: true })}));
   }
   _ensureTextLabelLyr().getSource().addFeature(f);
-  textLabelsV.push({ name: txt, rot: Number(rot) || 0, color: col, coord, h, ax, ay });
+  // feat 를 함께 보관 — 지우개로 라벨 하나만 지우고 되살리려면 피처 참조가 필요하다
+  textLabelsV.push({ feat: f, name: txt, rot: Number(rot) || 0, color: col, coord, h, ax, ay });
 }
 function clearTextLabelsV() {
   if (textLabelLyr) textLabelLyr.getSource().clear();
@@ -2346,6 +2372,36 @@ function _htmArr(text, name) {
 }
 function _isHtmFile(f) { return /\.html?$/i.test(f.name); }
 
+/* ── 중복 방지 ────────────────────────────────────────
+   같은 파일을 여러 번 열어도 이미 지도에 있는 객체는 다시 만들지 않는다.
+   지도에 살아있는 객체에서 매번 새로 시그니처를 뽑으므로,
+   지웠다가 다시 열면 정상적으로 되살아난다(그때는 '없는' 객체이므로).
+   비교는 위경도 기준 — 메르카토르 왕복 오차는 소수점 6자리 아래라 영향 없음. */
+const _R6 = n => Number(n).toFixed(6);
+function _sigLineLL(color, width, partsLL) {   // partsLL: [[[lat,lng],...],...]
+  return 'L|' + color + '|' + width + '|' +
+    partsLL.map(cs => cs.map(p => _R6(p[0]) + ',' + _R6(p[1])).join(';')).join('#');
+}
+function _sigPt(kind, lat, lng, name) {
+  return kind + '|' + _R6(lat) + ',' + _R6(lng) + '|' + (name == null ? '' : name);
+}
+function _existingSigs() {
+  const s = new Set();
+  for (const lyr of polylines) {
+    const partsLL = coordParts(lyr).map(cs => cs.map(c => { const ll = fromMerc(c); return [ll[1], ll[0]]; }));
+    s.add(_sigLineLL(lyr._color || '', lyr._width || 0, partsLL));
+  }
+  for (const m of markers) {
+    const ll = fromMerc(m.feat.getGeometry().getCoordinates());
+    s.add(_sigPt(m.isPhoto ? 'P' : 'M', ll[1], ll[0], m.name));
+  }
+  for (const t of textLabelsV) {
+    const ll = fromMerc(t.coord);
+    s.add(_sigPt('T', ll[1], ll[0], t.name));
+  }
+  return s;
+}
+
 async function loadHTM(file) {
   showLoading('HTM 읽는 중...');
   let D;
@@ -2374,32 +2430,57 @@ async function _loadHtmData(D) {
 
     const pts = [];
     const C = a => { const c = toMerc(a[1], a[0]); pts.push(c); return c; };   // [lat,lng] → 메르카토르
+    // 같은 파일을 두 번 열어도 이미 있는 객체는 건너뛴다
+    const sigs = _existingSigs();
+    let skipped = 0;
 
     // 선 + 폴리곤(외곽선) — 원본 도면 순서(z)대로
     const shapes = LINES.concat(POLYS).sort((a, b) => (a.z || 0) - (b.z || 0));
     shapes.forEach(g => {
-      const parts = (g.p || []).map(part => part.map(C)).filter(p => p.length >= 2);
+      const raw = (g.p || []).filter(part => part.length >= 2);
+      const parts = raw.map(part => part.map(C));
       if (!parts.length) return;
       const color = /^#[0-9a-fA-F]{6}$/.test(g.c || '') ? g.c : randColor();
       const width = Math.max(1, Number(g.w) || 4);
+      const sig = _sigLineLL(color, width, raw);
+      if (sigs.has(sig)) { skipped++; return; }
+      sigs.add(sig);
       const lyr = mkMultiLineLyr(parts, color, width);
       lyr._name = '선'; addLyr(lyr); polylines.push(lyr);
     });
 
     // CAD 문자 라벨 [lat,lng,내용,rot,color,h,ax,ay,tw]
+    // (건너뛴 객체도 C() 로 좌표를 먼저 반영해 화면 맞춤 범위는 파일 전체 기준이 되게)
     TEXTS.forEach(t => {
       if (!t || t.length < 3) return;
-      addTextLabelV(C(t), t[2], t[3] || 0, t[4] || '', t[5] || 0, t[6] || 0, t[7] || 0);
+      const c = C(t);
+      const sig = _sigPt('T', t[0], t[1], String(t[2] == null ? '' : t[2]));
+      if (sigs.has(sig)) { skipped++; return; }
+      sigs.add(sig);
+      addTextLabelV(c, t[2], t[3] || 0, t[4] || '', t[5] || 0, t[6] || 0, t[7] || 0);
     });
 
     // 일반 마커 [lat,lng,이름]
-    MARKERS.forEach(m => { if (m && m.length >= 2) addMarker(C(m), m[2] || '마커'); });
+    MARKERS.forEach(m => {
+      if (!m || m.length < 2) return;
+      const c = C(m);
+      const name = m[2] || '마커';
+      const sig = _sigPt('M', m[0], m[1], name);
+      if (sigs.has(sig)) { skipped++; return; }
+      sigs.add(sig);
+      addMarker(c, name);
+    });
 
     // 사진 마커 [lat,lng,이름,dataURL]
     for (let i = 0; i < PHOTOS.length; i++) {
       const ph = PHOTOS[i];
       if (!ph || ph.length < 4 || !ph[3]) continue;
-      addPhotoMarker(C(ph), ph[3], ph[2] || '사진');
+      const c = C(ph);
+      const name = ph[2] || '사진';
+      const sig = _sigPt('P', ph[0], ph[1], name);
+      if (sigs.has(sig)) { skipped++; continue; }
+      sigs.add(sig);
+      addPhotoMarker(c, ph[3], name);
       if (i % 5 === 0) {
         showLoading('사진 불러오는 중... (' + (i + 1) + ' / ' + PHOTOS.length + ')');
         await new Promise(r => setTimeout(r, 0));
@@ -2407,6 +2488,7 @@ async function _loadHtmData(D) {
     }
 
     fitPts(pts);
+    if (skipped) showToastMsg('이미 있는 객체 ' + skipped + '개는 건너뛰었습니다');
     if (pts.length > 0 || markers.length > 0 || polylines.length > 0)
       document.getElementById('saveBtn').disabled = false;
     hideLoading();
@@ -2442,8 +2524,225 @@ function askSaveScope() {
 document.getElementById('saveBtn').onclick = async () => {
   const scope = await askSaveScope();
   if (!scope) return;
-  exportKMZ(scope);
+  exportHTM(scope);
 };
+
+/* ═══════════════════════════════════════════════════
+   저장 = HTM 내보내기 + 공유
+
+   KMZ 대신 .htm 으로 저장한다:
+    · 파일 하나에 데이터가 다 들어가고, 열면 [지도 열기] 버튼으로 바로 지도가 뜬다
+      (PC 에서 열면 PC 지도, 휴대폰에서 열면 이 모바일 지도로 — MAPURL 분기 참조)
+    · 이 지도에 다시 끌어다 놓거나 📂 로 불러오면 그대로 복원된다
+    · text/html 은 안드로이드 크롬 공유 시트가 허용하는 형식이라 카톡 등으로 바로 보낼 수 있다
+      (application/vnd.google-earth.kmz 는 공유가 막혀 있었다)
+═══════════════════════════════════════════════════ */
+const GH_MAP_URL_MOBILE = 'https://junty75.github.io/Vmap/';
+const GH_MAP_URL_PC     = 'https://junty75.github.io/map/Vmap';
+
+const LAUNCHER_JS = [
+"(function(){",
+"  var btn=document.getElementById('go'), msg=document.getElementById('msg');",
+"  var payload={LINES:LINES,POLYS:POLYS,TEXTS:TEXTS,MARKERS:MARKERS,PHOTOS:PHOTOS};",
+"  // PC 에서 열면 PC 지도, 휴대폰에서 열면 모바일 지도",
+"  var isMobile=/Android|iPhone|iPad|iPod|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent)",
+"    ||(navigator.maxTouchPoints>1&&/Mac/.test(navigator.platform));",
+"  var MAPURL=isMobile?MAPURL_MOBILE:MAPURL_PC;",
+"  var origin=MAPURL.replace(/^(https?:\\/\\/[^\\/]+).*$/,'$1');",
+"  var win=null, timer=null, tries=0, sent=false;",
+"  function say(h){msg.innerHTML=h;}",
+"  function reset(label){clearInterval(timer);btn.disabled=false;btn.textContent=label;}",
+"  function send(target){",
+"    if(sent||!target)return;",
+"    try{target.postMessage({__jtymap:'data',payload:payload},origin);}",
+"    catch(e){say('전송 실패: '+e.message);return;}",
+"    sent=true;clearInterval(timer);",
+"    say('지도로 보냈습니다. 새 탭을 확인하세요.');",
+"  }",
+"  window.addEventListener('message',function(ev){",
+"    if(ev.origin!==origin||!ev.data)return;",
+"    if(ev.data.__jtymap==='ready')send(ev.source||win);",
+"    else if(ev.data.__jtymap==='done'){reset('지도 다시 열기');",
+"      say('지도에 표시됐습니다. 이 창은 닫아도 됩니다.');}",
+"  });",
+"  btn.onclick=function(){",
+"    sent=false;tries=0;btn.disabled=true;btn.textContent='여는 중...';",
+"    say('지도 페이지(https)를 여는 중...');",
+"    win=window.open(MAPURL+'#link','jtymap');",
+"    if(!win){reset('지도 열기');",
+"      say('<b>팝업이 차단됐습니다.</b> 주소창의 차단 아이콘에서 허용한 뒤 다시 누르세요.');return;}",
+"    try{win.focus();}catch(e){}",
+"    clearInterval(timer);",
+"    timer=setInterval(function(){",
+"      if(sent){clearInterval(timer);return;}",
+"      if(++tries>60){reset('다시 시도');",
+"        say('<b>지도 탭이 응답하지 않습니다.</b> 인터넷 연결을 확인하고,'",
+"          +' 열린 지도 탭을 새로고침한 뒤 다시 누르세요.');return;}",
+"      try{win.postMessage({__jtymap:'ping'},origin);}catch(e){}",
+"    },500);",
+"  };",
+"})();"
+].join('\n');
+
+function buildLauncherHtm(title, D) {
+  const J = o => JSON.stringify(o || []).replace(/</g, '\\u003c');
+  const c = k => (D[k] || []).length;
+  return [
+'<!DOCTYPE html>','<html lang="ko">','<head>','<meta charset="utf-8">',
+'<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">',
+'<title>' + esc(title) + '</title>',
+'<style>',
+'html,body{height:100%;margin:0}',
+'body{display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:18px;',
+'  background:#0f1115;color:#e6e8ee;font-family:"Malgun Gothic","맑은 고딕",system-ui,sans-serif}',
+'.card{width:100%;max-width:420px;text-align:center}',
+'h1{font-size:19px;margin:0 0 8px;word-break:break-all}',
+'.sub{font-size:13px;color:#95a0b4;margin:0 0 22px}',
+'button{width:100%;padding:16px;font-size:17px;font-weight:700;border:0;border-radius:12px;',
+'  background:#2f6fed;color:#fff;cursor:pointer}',
+'button:active{background:#2559c4}',
+'button[disabled]{background:#39414f;color:#8b94a4;cursor:default}',
+'.msg{margin-top:16px;font-size:13px;line-height:1.7;color:#95a0b4;min-height:46px}',
+'.msg b{color:#ffd166}',
+'</style>','</head>','<body>',
+'<div class="card">',
+'<h1>' + esc(title) + '</h1>',
+'<p class="sub">선 ' + c('LINES') + ' · 면 ' + c('POLYS') + ' · 문자 ' + c('TEXTS')
+  + ' · 마커 ' + c('MARKERS') + ' · 사진 ' + c('PHOTOS') + '</p>',
+'<button id="go">지도 열기</button>',
+'<p class="msg" id="msg">인터넷 지도(https)에서 열려 <b>내위치</b>가 동작합니다. 인터넷 연결이 필요합니다.</p>',
+'</div>',
+'<script>',
+'var LINES=' + J(D.LINES) + ';',
+'var POLYS=' + J(D.POLYS) + ';',
+'var TEXTS=' + J(D.TEXTS) + ';',
+'var MARKERS=' + J(D.MARKERS) + ';',
+'var PHOTOS=' + J(D.PHOTOS) + ';',
+'var MAPURL_MOBILE=' + JSON.stringify(GH_MAP_URL_MOBILE) + ';',
+'var MAPURL_PC=' + JSON.stringify(GH_MAP_URL_PC) + ';',
+LAUNCHER_JS,
+'<\/script>','</body>','</html>'
+].join('\n');
+}
+
+// 지도 위 객체 → 뷰어용 배열. 사진은 압축해 data URI 로 내장.
+async function _collectHtmDataV(scope) {
+  const extent = scope === 'view' ? vmap.getView().calculateExtent(vmap.getSize()) : null;
+  const inView = c => !extent || ol.extent.containsCoordinate(extent, c);
+  const R = n => +Number(n).toFixed(7);
+  const D = { LINES: [], POLYS: [], TEXTS: [], MARKERS: [], PHOTOS: [] };
+
+  for (const lyr of polylines) {
+    const parts = coordParts(lyr);
+    if (extent && !parts.some(cs => cs.some(inView))) continue;
+    const p = parts.map(cs => cs.map(c => { const ll = fromMerc(c); return [R(ll[1]), R(ll[0])]; }))
+                   .filter(cs => cs.length >= 2);
+    if (p.length) D.LINES.push({ c: lyr._color || '#ff0000', o: 1, w: lyr._width || 3, p });
+  }
+  for (const t of textLabelsV) {
+    if (!inView(t.coord)) continue;
+    const ll = fromMerc(t.coord);
+    D.TEXTS.push([R(ll[1]), R(ll[0]), t.name || '', t.rot || 0,
+                  t.color || '#FFEB00', t.h || 0, t.ax || 0, t.ay || 0]);
+  }
+  const photoMarkers = [];
+  for (const m of markers) {
+    const c = m.feat.getGeometry().getCoordinates();
+    if (!inView(c)) continue;
+    const ll = fromMerc(c);
+    if (m.isPhoto && m.imgSrc) photoMarkers.push([m, ll]);
+    else D.MARKERS.push([R(ll[1]), R(ll[0]), m.name || '']);
+  }
+  for (let i = 0; i < photoMarkers.length; i++) {
+    const [m, ll] = photoMarkers[i];
+    showLoading('사진 압축 중... (' + (i + 1) + ' / ' + photoMarkers.length + ')');
+    let src = '';
+    try { src = await compressImage(m.imgSrc); } catch (e) { src = m.imgSrc; }
+    D.PHOTOS.push([R(ll[1]), R(ll[0]), m.name || '', src]);
+  }
+  return D;
+}
+
+// 저장한 파일을 공유 시트로 보낸다 (공유앱 선택). 지원 안 하면 조용히 넘어감.
+async function shareHtmFile(file, name) {
+  if (!(navigator.canShare && navigator.share)) return;
+  let shareable = false;
+  try { shareable = navigator.canShare({ files: [file] }); } catch (e) { shareable = false; }
+  if (!shareable) return;
+  // 사진 압축·파일명 입력을 거치면서 '사용자 조작 유효시간'이 끝났을 수 있다 →
+  // 바로 시도해 보고 막히면 버튼 한 번 더 누르게 한다.
+  try {
+    await navigator.share({ files: [file], title: name, text: name });
+    return;
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;   // 사용자가 공유 취소
+  }
+  const bg = document.createElement('div');
+  bg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9200;display:flex;align-items:center;justify-content:center;';
+  bg.innerHTML =
+    '<div style="background:white;border-radius:14px;padding:20px;width:270px;box-shadow:0 4px 24px rgba(0,0,0,0.25);text-align:center;">' +
+    '<h3 style="margin:0 0 6px;font-size:15px;color:#333;">저장 완료</h3>' +
+    '<p style="margin:0 0 14px;font-size:12px;color:#777;word-break:break-all;">' + esc(name) + '</p>' +
+    '<button class="sh-go" style="display:block;width:100%;padding:12px;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px;background:#1a73e8;color:white;">📤 공유하기</button>' +
+    '<button class="sh-no" style="display:block;width:100%;padding:12px;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;background:#f1f3f4;color:#555;">닫기</button>' +
+    '</div>';
+  bg.querySelector('.sh-no').onclick = () => bg.remove();
+  bg.querySelector('.sh-go').onclick = async () => {
+    bg.remove();
+    try { await navigator.share({ files: [file], title: name, text: name }); } catch (e) {}
+  };
+  document.body.appendChild(bg);
+}
+
+async function exportHTM(scope = 'all') {
+  // 저장 범위: 'view'=현재 화면에 보이는 객체만, 'all'=전체 객체
+  if (!markers.length && !polylines.length && !textLabelsV.length) {
+    alert('저장할 객체가 없습니다.');
+    return;
+  }
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}`;
+  const prefix = await getAddrPrefix();
+  const last = ([...markers].reverse().find(m => !m.isPhoto) || markers.at(-1))?.name || '';
+  const cleanLast = last.replace(/_\d{8}.*$/, '').replace(/[\\/:*?"<>|]/g, '').trim();
+  const defaultName = cleanLast ? `${prefix}${dateStr}_${cleanLast}` : `${prefix}${dateStr}_지도`;
+
+  const userInput = prompt('저장할 파일 이름을 입력하세요 (확장자 제외):', defaultName);
+  if (userInput === null) return;
+  const base = (userInput.trim() || defaultName).replace(/[\\/:*?"<>|]/g, '_');
+  const fileName = base + '.htm';
+
+  showLoading('HTM 저장 중...');
+  try {
+    const D = await _collectHtmDataV(scope);
+    const n = D.LINES.length + D.POLYS.length + D.TEXTS.length + D.MARKERS.length + D.PHOTOS.length;
+    if (!n) {
+      hideLoading();
+      alert(scope === 'view' ? '현재 화면에 보이는 객체가 없습니다.' : '저장할 객체가 없습니다.');
+      return;
+    }
+    const html = buildLauncherHtm(base, D);
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+
+    // 1) 저장 (다운로드)
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    hideLoading();
+
+    // 2) 공유 시트 (공유앱 선택)
+    let f = null;
+    try { f = new File([blob], fileName, { type: 'text/html' }); } catch (e) {}
+    if (f) await shareHtmFile(f, fileName);
+  } catch (err) {
+    hideLoading();
+    alert('HTM 저장 중 오류: ' + err.message);
+  }
+}
 
 async function getAddrPrefix() {
   try {
@@ -2573,14 +2872,136 @@ function toggleCadastral() {
   }
 }
 
+/* ═══════════════════════════════════════════════════
+   삭제 — 빗자루(전체) / 지우개(선택) / 되돌리기
+
+   · 빗자루 🧹 : 확인 후 전부 삭제
+   · 지우개    : 모드 토글. 지도를 누르면 그 지점 화면 ERASE_TOL_PX 픽셀 안의
+                 객체를 한 번에 지운다 → 축소 상태에선 같은 반경이 넓은 지역을
+                 덮으므로 근처 여러 개가 한꺼번에 지워진다.
+   · 되돌리기  : 지운 '묶음'을 최근 것부터 하나씩 되살린다.
+                 (한 번의 탭에서 지워진 여러 개 = 한 묶음)
+═══════════════════════════════════════════════════ */
+const ERASE_TOL_PX = 22;      // 지우개 반경(화면 픽셀)
+const ERASE_HISTORY_MAX = 60; // 되돌리기 보관 묶음 수
+let eraseMode = false;
+let eraseHistory = [];        // [ [ {kind,obj}, ... ], ... ]  뒤쪽이 최신
+
+function updateUndoBtn() {
+  document.getElementById('undoBtn').classList.toggle('show', eraseHistory.length > 0);
+}
+function pushEraseBatch(batch) {
+  if (!batch.length) return;
+  eraseHistory.push(batch);
+  while (eraseHistory.length > ERASE_HISTORY_MAX) eraseHistory.shift();
+  updateUndoBtn();
+}
+function _removeErasedV(it) {
+  if (it.kind === 'marker') {
+    if (it.obj.ov) { vmap.removeOverlay(it.obj.ov); it.obj.ov = null; }
+    removeLyr(it.obj.lyr);
+    markers = markers.filter(m => m !== it.obj);
+  } else if (it.kind === 'line') {
+    removeLyr(it.obj);
+    polylines = polylines.filter(l => l !== it.obj);
+  } else {
+    try { textLabelLyr.getSource().removeFeature(it.obj.feat); } catch (e) {}
+    textLabelsV = textLabelsV.filter(t => t !== it.obj);
+  }
+}
+function _restoreErasedV(it) {
+  if (it.kind === 'marker') { addLyr(it.obj.lyr); markers.push(it.obj); }
+  else if (it.kind === 'line') { addLyr(it.obj); polylines.push(it.obj); }
+  else {
+    try { _ensureTextLabelLyr().getSource().addFeature(it.obj.feat); } catch (e) {}
+    textLabelsV.push(it.obj);
+  }
+}
+function _syncSaveBtnV() {
+  document.getElementById('saveBtn').disabled =
+    !(markers.length || polylines.length || textLabelsV.length);
+}
+// 선(묶음선 포함)이 좌표 c 에서 tol(지도단위) 안에 있나 — 메르카토르 좌표로 직접 계산
+function _polyWithinV(lyr, c, tol) {
+  for (const cs of coordParts(lyr)) {
+    if (!cs || cs.length < 2) continue;
+    for (let i = 0; i < cs.length - 1; i++) {
+      if (ptSegDist(c, cs[i], cs[i + 1]) <= tol) return true;
+    }
+  }
+  return false;
+}
+
+function eraseAtCoord(coord) {
+  if (!coord) return;
+  let res = 0;
+  try { res = vmap.getView().getResolution(); } catch (e) {}
+  if (!(res > 0)) return;
+  const tol = res * ERASE_TOL_PX;   // 화면 픽셀 반경 → 지도 좌표 반경
+
+  const batch = [];
+  for (const m of markers) {
+    const c = m.feat.getGeometry().getCoordinates();
+    if (Math.hypot(c[0] - coord[0], c[1] - coord[1]) <= tol) batch.push({ kind: 'marker', obj: m });
+  }
+  for (const t of textLabelsV) {
+    if (Math.hypot(t.coord[0] - coord[0], t.coord[1] - coord[1]) <= tol) batch.push({ kind: 'text', obj: t });
+  }
+  for (const lyr of polylines) {
+    if (_polyWithinV(lyr, coord, tol)) batch.push({ kind: 'line', obj: lyr });
+  }
+
+  if (!batch.length) { showToastMsg('지울 객체가 없습니다'); return; }
+  closeAllPopups();
+  batch.forEach(_removeErasedV);
+  pushEraseBatch(batch);
+  _syncSaveBtnV();
+  showToastMsg(batch.length + '개 삭제 — ↩️ 로 되돌릴 수 있어요');
+  autoSaveToDB();
+}
+
+function setEraseMode(on) {
+  eraseMode = !!on;
+  document.getElementById('eraseBtn').classList.toggle('active', eraseMode);
+  if (eraseMode) {
+    if (drawing) endDraw();
+    if (markerPlacingMode) {
+      markerPlacingMode = false;
+      document.getElementById('markerBtn').classList.remove('active');
+      document.getElementById('crosshair').classList.remove('show');
+    }
+    closeAllPopups();
+    showToastMsg('지우개: 지울 곳을 탭하세요 (다시 누르면 해제)');
+  }
+}
+
+document.getElementById('eraseBtn').onclick = () => setEraseMode(!eraseMode);
+
+document.getElementById('undoBtn').onclick = () => {
+  const batch = eraseHistory.pop();
+  if (!batch) { updateUndoBtn(); return; }
+  batch.forEach(_restoreErasedV);
+  _syncSaveBtnV();
+  updateUndoBtn();
+  showToastMsg(batch.length + '개 되살림');
+  autoSaveToDB();
+};
+
+/* ── 화면 초기화 버튼 (빗자루 = 전체 삭제) ── */
 document.getElementById('clearBtn').onclick = () => {
   if (!confirm('모든 마커와 선을 삭제하고 화면을 초기화할까요?')) return;
   closeAllPopups();
+  // 전체 삭제도 한 묶음으로 기록 → ↩️ 로 되살릴 수 있음
+  const batch = markers.map(m => ({ kind: 'marker', obj: m }))
+    .concat(polylines.map(l => ({ kind: 'line', obj: l })))
+    .concat(textLabelsV.map(t => ({ kind: 'text', obj: t })));
   markers.forEach(m => removeLyr(m.lyr)); markers = [];
   polylines.forEach(l => removeLyr(l)); polylines = [];
   clearTextLabelsV();
   clearOrigs();   // 보관 원본 전체 정리
   if (drawing) endDraw();
+  if (eraseMode) setEraseMode(false);
+  pushEraseBatch(batch);
   document.getElementById('saveBtn').disabled = true;
   autoSaveToDB();
 };
@@ -3228,7 +3649,7 @@ document.addEventListener('keydown', e => {
     if (markerPlacingMode) { document.getElementById('markerBtn').click(); return; }
   }
   if (e.altKey) { e.preventDefault(); toggleDraw(); return; }
-  if (e.ctrlKey && e.key.toLowerCase()==='s') { e.preventDefault(); exportKMZ(); return; }
+  if (e.ctrlKey && e.key.toLowerCase()==='s') { e.preventDefault(); exportHTM(); return; }
   if (drawing && (e.key==='Backspace'||(e.ctrlKey&&e.key==='z'))) {
     e.preventDefault();
     if (drawCoords.length > 0) { drawCoords.pop(); refreshDraw(); }
