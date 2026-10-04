@@ -578,31 +578,25 @@ async function _autoSaveNow() {
 }
 
 /* ════════════════════════════════
-   위치 마커 스타일 (파랑 + 방향) — 빨간 설명 마커와 구분
+   위치 마커 스타일 (보라 + 방향) — 빨간 설명·파란 사진 마커와 구분
 ════════════════════════════════ */
+// 내 위치 마커 SVG — 보라색(설명=빨강·사진=파랑 원과 구분). 방향 있으면 내비 화살표, 없으면 흰 점 박힌 고리
+function locMarkerSvg(heading) {
+  const hasH = heading != null && !isNaN(heading) && heading >= 0;
+  const body = hasH
+    ? '<polygon points="20,4 31,32 20,26 9,32" fill="#8e24aa" stroke="white" stroke-width="2.5" stroke-linejoin="round"/>'
+    : '<circle cx="20" cy="20" r="9" fill="#8e24aa" stroke="white" stroke-width="3"/><circle cx="20" cy="20" r="3" fill="white"/>';
+  return '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">' +
+    '<circle cx="20" cy="20" r="18" fill="rgba(142,36,170,0.18)" stroke="rgba(142,36,170,0.45)" stroke-width="1"/>' +
+    body + '</svg>';
+}
 function makeLocationStyle(heading) {
-  const hasHeading = heading !== null && !isNaN(heading) && heading >= 0;
-  if (!hasHeading) {
-    return [
-      new ol.style.Style({ image: new ol.style.Circle({ radius: 15, fill: new ol.style.Fill({ color: 'rgba(26,115,232,0.18)' }) }) }),
-      new ol.style.Style({
-        image: new ol.style.Circle({
-          radius: 8, fill: new ol.style.Fill({ color: '#1a73e8' }),
-          stroke: new ol.style.Stroke({ color: 'white', width: 2.5 })
-        })
-      })
-    ];
-  }
-  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="50">' +
-    '<circle cx="15" cy="25" r="15" fill="rgba(26,115,232,0.18)"/>' +
-    '<polygon points="15,2 6,20 24,20" fill="rgba(26,115,232,0.85)" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>' +
-    '<circle cx="15" cy="25" r="8" fill="#1a73e8" stroke="white" stroke-width="2.5"/>' +
-    '</svg>';
+  const hasHeading = heading != null && !isNaN(heading) && heading >= 0;
   return new ol.style.Style({
     image: new ol.style.Icon({
-      src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg),
+      src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(locMarkerSvg(heading)),
       anchor: [0.5, 0.5], anchorXUnits: 'fraction', anchorYUnits: 'fraction',
-      rotation: heading * Math.PI / 180
+      rotation: hasHeading ? heading * Math.PI / 180 : 0
     })
   });
 }
@@ -789,7 +783,7 @@ function moveToSearchResult(r) {
 ════════════════════════════════ */
 function initMap(lat, lng, zoom) {
   vw.ol3.CameraPosition.center = ol.proj.transform([lng, lat], 'EPSG:4326', 'EPSG:3857');
-  vw.ol3.CameraPosition.zoom   = zoom || 14;
+  vw.ol3.CameraPosition.zoom   = zoom || 15;   // 15 = 카카오 기본 레벨 5 와 같은 축척(약 4m/px)
   vw.ol3.MapOptions = {
     basemapType        : vw.ol3.BasemapType.PHOTO,
     controlDensity     : vw.ol3.DensityType.EMPTY,
@@ -1072,7 +1066,7 @@ function initMap(lat, lng, zoom) {
 
   // 지도 이동/줌 변경 시 마지막 위치 저장
   let _savePosTimer = null;
-  vmap.getView().on('change', () => {
+  vmap.on('moveend', () => {   // OL3 view 'change' 는 이동·확대 때 안 떠서 저장이 안 됐다 → moveend
     clearTimeout(_savePosTimer);
     _savePosTimer = setTimeout(() => {
       const c = fromMerc(vmap.getView().getCenter());
@@ -1092,6 +1086,14 @@ function initMap(lat, lng, zoom) {
     .catch(e => console.warn('이전 데이터 복원 실패 — 빈 지도로 시작', e));
   window._restoreReady = Promise.race([_restore, new Promise(r => setTimeout(r, 15000))]);
   window._restoreReady.then(() => { _restoreDone = true; });
+  // 전에 보던 화면 복원 — 복원 데이터의 fitPts 가 화면을 바꾸므로 그 뒤에 다시 맞춘다.
+  // (lastPos 는 fitPts 직후 덮어써지므로 window.onload 에서 미리 읽어 둔 _bootLastPos 를 쓴다)
+  _restore.then(() => {
+    const lp = window._bootLastPos;
+    if (lp && isFinite(lp.lat) && isFinite(lp.lng)) {
+      try { const v = vmap.getView(); v.setCenter(toMerc(lp.lng, lp.lat)); if (isFinite(lp.z)) v.setZoom(lp.z); } catch (e) {}
+    }
+  });
   _restore.then(() => { try { consumeSharedFiles(); } catch (e) { console.warn('공유파일 처리 실패', e); } });
   _installLinkReceiver();
   _startLocationOnLoad();   // 내 위치 1단계로 시작 (항상 표시 + 처음 한 번 내 위치로)
@@ -1279,7 +1281,8 @@ window.onload = () => {
 
   // 마지막으로 보던 위치 복원, 없으면 기본 좌표
   const _lp = (() => { try { return JSON.parse(localStorage.getItem('lastPos')); } catch(_) { return null; } })();
-  initMap(_lp ? _lp.lat : 35.6472, _lp ? _lp.lng : 127.5219, _lp ? _lp.z : 14);
+  window._bootLastPos = _lp;   // 복원 후 다시 맞출 때 사용 (localStorage 값은 복원 중 덮어써짐)
+  initMap(_lp ? _lp.lat : 35.6472, _lp ? _lp.lng : 127.5219, _lp ? _lp.z : 15);
   loadAirYears();   // 촬영연도 목록 (국토정보플랫폼)
 };
 
@@ -2133,7 +2136,7 @@ function setupDeviceOrientation() {
 //   2단계에서 누르면 1단계로(따라가기만 해제)
 // 처음 열면 복원이 끝난 뒤 내 위치로 한 번 이동한다 — 그 전에 손으로 지도를 움직였거나
 // 런처·공유·드라이브로 화면이 바뀌었으면 이동하지 않는다. (index.html 과 같은 규칙)
-let _locAutoCenter = true, _locAutoPending = false, _locCenterNext = false;
+let _locAutoCenter = false, _locAutoPending = false, _locCenterNext = false;   // 처음 실행 때는 이동 안 함(전에 보던 화면) — 버튼을 눌러야 이동
 let _restoreDone = false;      // 복원이 끝난 뒤의 fitPts = 런처·공유가 화면을 바꾼 것
 
 function _locCancelAuto() { _locAutoCenter = false; _locAutoPending = false; }
@@ -3673,10 +3676,11 @@ function fitPts(pts) {
   pts.forEach(c => { if(c[0]<minX)minX=c[0];if(c[0]>maxX)maxX=c[0];if(c[1]<minY)minY=c[1];if(c[1]>maxY)maxY=c[1]; });
   vmap.getView().setCenter([(minX+maxX)/2,(minY+maxY)/2]);
   const w=maxX-minX,h=maxY-minY;
-  if (w<100&&h<100) { vmap.getView().setZoom(16); return; }
+  // 카카오 setBounds 처럼 꽉 차게 — 예전엔 여백 160px 이라 카카오보다 한 단계 작게 보였다
+  if (w<100&&h<100) { vmap.getView().setZoom(17); return; }
   const mapSize=vmap.getSize()||[innerWidth,innerHeight];
-  const res=Math.max(w/Math.max(mapSize[0]-160,100),h/Math.max(mapSize[1]-160,100));
-  vmap.getView().setZoom(Math.min(Math.max(Math.floor(Math.log2(156543.03392/res)),1),16));
+  const res=Math.max(w/Math.max(mapSize[0]-40,100),h/Math.max(mapSize[1]-40,100));
+  vmap.getView().setZoom(Math.min(Math.max(Math.floor(Math.log2(156543.03392/res)),1),17));
 }
 
 /* ════════════════════════════════
