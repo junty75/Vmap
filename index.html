@@ -702,7 +702,7 @@ function searchTier(r) {
 let searchSeq = 0;
 async function doSearch() {
   const q = document.getElementById('searchInput').value.trim();
-  if (!q) { hideSearchResults(); return; }
+  if (!q) { hideSearchResults(); clearSearchMarker(); return; }   // 빈칸으로 검색 = 검색 핀 지우기
   const seq = ++searchSeq;
   showSearchMsg('검색 중...');
   const settled = await Promise.allSettled(searchQueries(q).flatMap(qq => SEARCH_TYPES.map(t => vworldSearch(qq, t))));
@@ -745,10 +745,25 @@ function renderSearchResults(list) {
   box.classList.add('show');
 }
 
+// 검색한 자리 핀 — map.html 과 같은 카카오 기본 마커 이미지(2x 를 반 크기로). 자동저장·내보내기 대상(markers) 아님
+let searchMarker = null, _lastSearchQ = '';
+function clearSearchMarker() {
+  if (searchMarker) { removeLyr(searchMarker); searchMarker = null; }
+  _lastSearchQ = '';
+}
 function moveToSearchResult(r) {
   hideSearchResults();
   document.getElementById('searchInput').blur();
   if (!vmap) return;
+  if (searchMarker) removeLyr(searchMarker);
+  const feat = new ol.Feature({ geometry: new ol.geom.Point(toMerc(r.lng, r.lat)) });
+  feat.setStyle(new ol.style.Style({ image: new ol.style.Icon({
+    src: 'https://t1.daumcdn.net/mapjsapi/images/2x/marker.png', scale: 0.5,
+    anchor: [0.5, 1], anchorXUnits: 'fraction', anchorYUnits: 'fraction' }) }));
+  searchMarker = new ol.layer.Vector({ source: new ol.source.Vector({ features: [feat] }), zIndex: 150 });
+  searchMarker._searchPin = true;   // 클릭·지우개·저장 대상에서 빼는 표시
+  addLyr(searchMarker);
+  _lastSearchQ = document.getElementById('searchInput').value.trim();
   const v = vmap.getView();
   v.setCenter(toMerc(r.lng, r.lat));
   if ((v.getZoom() || 0) < 17) v.setZoom(17);
@@ -765,7 +780,17 @@ function moveToSearchResult(r) {
     if (e.key === 'Enter') { e.preventDefault(); input.blur(); doSearch(); }
     else if (e.key === 'Escape') { hideSearchResults(); input.blur(); }
   });
-  document.getElementById('searchGo').addEventListener('click', () => { input.blur(); doSearch(); });
+  // 검색한 자리에 핀이 있는 채로 같은 검색어(또는 빈칸)로 검색 버튼을 다시 누르면 → 핀·검색어 지우기
+  document.getElementById('searchGo').addEventListener('click', () => {
+    input.blur();
+    const q = input.value.trim();
+    if (searchMarker && (!q || q === _lastSearchQ)) {
+      clearSearchMarker();
+      input.value = ''; syncClear(); hideSearchResults();
+      return;
+    }
+    doSearch();
+  });
   clear.addEventListener('click', () => {
     input.value = '';
     syncClear();
