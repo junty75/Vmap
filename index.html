@@ -92,7 +92,7 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 #drawStyleBtn{top:128px;right:72px;display:none;}
 #drawStyleBtn.show{display:flex;}
 #drawStyleBtn .dsb-line{width:26px;border-radius:3px;background:#FF0000;height:3px;}
-#markerBtn{top:184px;right:16px;padding:0;transition:background 0.2s;font-size:20px;}
+#markerBtn{display:none;}/* 2026-10-17 뺌 — 마커는 지도 길게 누르기 메뉴로 (자리는 📷 가 씀) */
 #markerBtn.active{background:#43a047;box-shadow:0 2px 8px rgba(67,160,71,0.6);}
 /* 오른쪽 한 줄: … 마커 → 지우개(선택삭제) → 빗자루(전체삭제) → 지적도
    되돌리기는 지우개 왼쪽에, 지우개 모드에서 실제로 지웠을 때만 나타난다 */
@@ -872,9 +872,9 @@ function initMap(lat, lng, zoom) {
       touchDrawStartX = e.clientX;
       touchDrawStartY = e.clientY;
     }
-    // 지도 길게 누르기(600ms) → 위치 공유. 두 번째 손가락(핀치)이 닿으면 취소.
+    // 지도 길게 누르기(600ms) → 메뉴(마커·문자·거리·면적·공유, gdrive.js openPressMenu). 두 번째 손가락(핀치)이 닿으면 취소.
     clearTimeout(mapPressTimer);
-    if (e.pointerType === 'touch' && e.isPrimary && !drawing && !markerPlacingMode && !eraseMode) {
+    if (e.pointerType === 'touch' && e.isPrimary && !drawing && !markerPlacingMode && !eraseMode && !window._measuring) {
       pressX = e.clientX; pressY = e.clientY;
       const rect = vp.getBoundingClientRect();
       const pixel = [
@@ -895,7 +895,11 @@ function initMap(lat, lng, zoom) {
         const nearPoly = findNearPoly(pixel, 22);
         if (nearPoly) { showPolyMenu(pressX, pressY, nearPoly); return; }
         const coord = vmap.getCoordinateFromPixel(pixel);
-        if (coord) { const ll = fromMerc(coord); openShareLocation(ll[1], ll[0]); }
+        if (coord) {
+          const ll = fromMerc(coord);
+          if (window.openPressMenu) openPressMenu(ll[1], ll[0], pressX, pressY);
+          else openShareLocation(ll[1], ll[0]);
+        }
       }, 600);
     }
   }, { passive: true });
@@ -918,6 +922,8 @@ function initMap(lat, lng, zoom) {
         (e.clientY - rect.top)  * (vp.offsetHeight / rect.height)
       ];
       const coord = vmap.getCoordinateFromPixel(pixel);
+      // 거리·면적 재기 (gdrive.js)
+      if (window._measuring && coord) { const ll = fromMerc(coord); if (window.measureTap(ll[1], ll[0])) { suppressNextClick = true; return; } }
       // 지우개 모드: 탭한 지점 근처 객체 삭제
       if (eraseMode) { eraseAtCoord(coord); suppressNextClick = true; return; }
       if (drawing) {
@@ -1210,6 +1216,7 @@ window.addEventListener('popstate', function(ev) {
   if (_pv && _pv.classList.contains('show')) { _pv.classList.remove('show'); return; }
   if (window.gdOnBack && window.gdOnBack()) return;   // 구글 드라이브 창·불러오기가 떠 있으면 그것만 닫는다
   if (_closeTopPopup()) return;                       // 입력창·메뉴·말풍선이 떠 있으면 그것만 닫는다
+  if (window.measureOnBack && window.measureOnBack()) return;   // 거리·면적 재기: 점 하나 되돌리기
   if (drawing) {
     if (drawUndoV.length > 0) undoLastActionV();
     else endDraw();
@@ -1316,6 +1323,7 @@ window.addEventListener('beforeinstallprompt', e => {
 function mapClick(evt) {
   if (evt.originalEvent?.pointerType === 'touch') return; // 터치는 pointerup에서 처리
   if (suppressNextClick) { suppressNextClick = false; return; }
+  if (window._measuring) { const ll = fromMerc(evt.coordinate); if (window.measureTap(ll[1], ll[0])) return; }   // 거리·면적 재기
   // 지우개 모드: 클릭한 지점 근처 객체 삭제
   if (eraseMode) { eraseAtCoord(evt.coordinate); return; }
   if (drawing) {
