@@ -1747,6 +1747,8 @@ document.getElementById('polyEditBtn').onclick = () => {
   const coords = getCoords(lyr);
   removeLyr(lyr); polylines = polylines.filter(p => p !== lyr);
   drawing = true; drawCoords = coords.slice();
+  // 기존 절점도 뒤로가기로 하나씩 지워지게(선그리기와 같게) — 예전엔 되돌릴 게 없어 바로 수정 끝 (2026-10-17)
+  drawUndoV = drawCoords.map(() => ({ type: 'point' }));
   // 원래 색·굵기 유지한 채 수정 모드 진입
   currentDrawColor = lyr._color || currentDrawColor;
   currentDrawWidth = lyr._width || currentDrawWidth;
