@@ -874,7 +874,7 @@ function initMap(lat, lng, zoom) {
     }
     // 지도 길게 누르기(600ms) → 메뉴(마커·문자·거리·면적·공유, gdrive.js openPressMenu). 두 번째 손가락(핀치)이 닿으면 취소.
     clearTimeout(mapPressTimer);
-    if (e.pointerType === 'touch' && e.isPrimary && !drawing && !markerPlacingMode && !eraseMode && !window._measuring) {
+    if (e.pointerType === 'touch' && e.isPrimary && !drawing && !markerPlacingMode && !eraseMode && (!window._measuring || window._routeMode)) {   // 길찾기 중엔 길게 누르기 = 경로 편집
       pressX = e.clientX; pressY = e.clientY;
       const rect = vp.getBoundingClientRect();
       const pixel = [
@@ -886,13 +886,13 @@ function initMap(lat, lng, zoom) {
         // 마커/선 '근처' 길게누르기 = 수정/삭제 메뉴 (contextmenu 미발생 기기 대비,
         // 선을 픽셀 단위로 정확히 안 눌러도 선택되도록 허용 반경 확대)
         let hitMk = false;
-        vmap.forEachFeatureAtPixel(pixel, feat => {
+        if (!window._routeMode) vmap.forEachFeatureAtPixel(pixel, feat => {   // 길찾기 중엔 경로 편집 메뉴가 우선
           if (hitMk) return;
           const m = markers.find(mk => mk.feat === feat);
           if (m) { hitMk = true; openMarkerEditModalObj(m); }
         }, { hitTolerance: 20 });
         if (hitMk) return;
-        const nearPoly = findNearPoly(pixel, 22);
+        const nearPoly = window._routeMode ? null : findNearPoly(pixel, 22);
         if (nearPoly) { showPolyMenu(pressX, pressY, nearPoly); return; }
         const coord = vmap.getCoordinateFromPixel(pixel);
         if (coord) {
@@ -1879,7 +1879,9 @@ function _lineKmlPlacemarkV(lyr, styles) {
     su = `<styleUrl>#${styles.get(key)}</styleUrl>`;
   }
   const geom = segs.length === 1 ? segs[0] : `<MultiGeometry>${segs.join('')}</MultiGeometry>`;
-  return `\n<Placemark><name>${esc(lyr._name || '선')}</name>${su}${geom}</Placemark>`;
+  // 🧭 길찾기로 저장한 선은 찍은 지점·옵션도 (gdrive.js '경로 고치기')
+  const rw = (lyr._rwps && lyr._rwps.length >= 2) ? `<ExtendedData><Data name="rwps"><value>${lyr._rwps.map(q => q[0].toFixed(7) + ',' + q[1].toFixed(7)).join(';')}</value></Data><Data name="rprof"><value>${lyr._rprof || 'car'}</value></Data></ExtendedData>` : '';
+  return `\n<Placemark><name>${esc(lyr._name || '선')}</name>${su}${rw}${geom}</Placemark>`;
 }
 // styles(Map: 'RRGGBB_w' -> id) -> KML <Style> 정의 (KML 색은 aabbggrr)
 function _lineKmlStyleDefsV(styles) {
@@ -2468,6 +2470,11 @@ async function loadKMZ(file, silent = false) {
         // Placemark 하나(MultiGeometry 포함)의 모든 선을 레이어 1개에 — 수천 선 KMZ 경량화
         const lyr = mkMultiLineLyr(coordArrays, color, sw);
         lyr._name = name; addLyr(lyr); polylines.push(lyr);
+        for (const d of Array.from(pm.getElementsByTagName('Data'))) {   // 🧭 길찾기 선의 찍은 지점·옵션
+          const v = (d.getElementsByTagName('value')[0]?.textContent || '').trim();
+          if (d.getAttribute('name') === 'rwps') lyr._rwps = v.split(';').map(s => s.split(',').map(Number)).filter(q => q.length === 2 && isFinite(q[0]) && isFinite(q[1]));
+          else if (d.getAttribute('name') === 'rprof') lyr._rprof = v;
+        }
         for (const cs of coordArrays) pts.push(...cs);
         continue;
       }
