@@ -219,6 +219,8 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 /* ── 로딩 ── */
 #loading{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;flex-direction:column;gap:12px;align-items:center;justify-content:center;color:white;font-size:15px;}
 #loading.show{display:flex;}
+#loading.quiet{background:transparent;}
+#loading.quiet>*{visibility:hidden;}
 .spinner{width:40px;height:40px;border:4px solid rgba(255,255,255,.3);border-top-color:white;border-radius:50%;animation:spin .8s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
 
@@ -283,8 +285,8 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 <!-- 지도종류 선택 -->
 <div id="mapTypeBox">
   <select id="mapTypeSelect" onchange="changeVWorldMapType(this.value)" title="지도 종류">
-    <option value="PHOTO" selected>항공사진</option>
-    <option value="PHOTO_HYBRID">항공+지도</option>
+    <option value="PHOTO">항공사진</option>
+    <option value="PHOTO_HYBRID" selected>항공+지도</option>
     <option value="GRAPHIC">일반지도</option>
     <option value="GRAY">회색지도</option>
   </select>
@@ -440,8 +442,17 @@ function pad(n)           { return String(n).padStart(2, '0'); }
 function randColor()      { return '#' + Math.floor(Math.random()*0xFFFFFF).toString(16).padStart(6,'0'); }
 function esc(s)           { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-function showLoading(msg) { document.getElementById('loadingMsg').textContent = msg||'불러오는 중...'; document.getElementById('loading').classList.add('show'); }
-function hideLoading()    { document.getElementById('loading').classList.remove('show'); }
+// 앱을 다시 열 때의 자동 복원은 '조용히' — 어두운 로딩 창을 바로 띄우지 않는다(지도를 다시 불러오는 것처럼 보였다).
+// 화면은 투명하게 막아 두고(복원 중 손대면 자동저장이 반쪽 데이터를 쓸 수 있음) 1.5초 넘게 걸릴 때만 보통 로딩 창.
+let _quietLoad = false, _quietT = null;
+function showLoading(msg) {
+  document.getElementById('loadingMsg').textContent = msg||'불러오는 중...';
+  const el = document.getElementById('loading');
+  if (_quietLoad && !el.classList.contains('show')) { el.classList.add('quiet'); clearTimeout(_quietT); _quietT = setTimeout(() => el.classList.remove('quiet'), 1500); }
+  else if (!_quietLoad) { clearTimeout(_quietT); el.classList.remove('quiet'); }
+  el.classList.add('show');
+}
+function hideLoading()    { clearTimeout(_quietT); document.getElementById('loading').classList.remove('show', 'quiet'); }
 
 function showDeleteHint() {
   if (hintShown) return; hintShown = true;
@@ -576,7 +587,8 @@ function makeLocationStyle(heading) {
     image: new ol.style.Icon({
       src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(locMarkerSvg(heading)),
       anchor: [0.5, 0.5], anchorXUnits: 'fraction', anchorYUnits: 'fraction',
-      rotation: hasHeading ? heading * Math.PI / 180 : 0
+      rotation: hasHeading ? heading * Math.PI / 180 : 0,
+      rotateWithView: true   // 지도를 돌려 놓아도 실제 방위를 가리키게(예전엔 화면 기준이라 틀렸다)
     })
   });
 }
@@ -791,7 +803,7 @@ function initMap(lat, lng, zoom) {
   vw.ol3.CameraPosition.center = ol.proj.transform([lng, lat], 'EPSG:4326', 'EPSG:3857');
   vw.ol3.CameraPosition.zoom   = zoom || 15;   // 15 = 카카오 기본 레벨 5 와 같은 축척(약 4m/px)
   vw.ol3.MapOptions = {
-    basemapType        : vw.ol3.BasemapType.PHOTO,
+    basemapType        : vw.ol3.BasemapType.PHOTO_HYBRID,   // 기본 = 항공+지도 (2026-10-21 사용자 요청)
     controlDensity     : vw.ol3.DensityType.EMPTY,
     interactionDensity : vw.ol3.DensityType.FULL,
     controlsAutoArrange: true,
@@ -856,7 +868,7 @@ function initMap(lat, lng, zoom) {
       vmap.getView().setRotation(0);
       return;
     }
-    const deg = -(rot * 180 / Math.PI);
+    const deg = rot * 180 / Math.PI;   // OL 회전은 시계방향이 + → 바늘도 같은 쪽(예전엔 부호가 반대라 거꾸로 돌았다)
     document.getElementById('compassNeedle').style.transform = `rotate(${deg}deg)`;
   });
   scheduleAddrUpdate(); // 초기 로드 시 중심 주소 표시
@@ -1078,14 +1090,20 @@ function initMap(lat, lng, zoom) {
 
   // 지도 이동/줌 변경 시 마지막 위치 저장
   let _savePosTimer = null;
-  vmap.on('moveend', () => {   // OL3 view 'change' 는 이동·확대 때 안 떠서 저장이 안 됐다 → moveend
+  const _savePos = () => {
     clearTimeout(_savePosTimer);
-    _savePosTimer = setTimeout(() => {
+    try {
       const c = fromMerc(vmap.getView().getCenter());
       const z = vmap.getView().getZoom();
       if (c && z) localStorage.setItem('lastPos', JSON.stringify({ lng: c[0], lat: c[1], z }));
-    }, 500);
+    } catch (e) {}
+  };
+  vmap.on('moveend', () => {   // OL3 view 'change' 는 이동·확대 때 안 떠서 저장이 안 됐다 → moveend
+    clearTimeout(_savePosTimer);
+    _savePosTimer = setTimeout(_savePos, 500);
   });
+  // 옮기자마자 앱을 내리면 0.5초 저장이 안 될 수 있다 → 화면을 떠날 때 바로 저장 (복원이 끝난 뒤만)
+  document.addEventListener('visibilitychange', () => { if (document.hidden && _restoreDone) _savePos(); });
 
   _initTabChannel();   // 다른 탭이 '비켜달라'고 하면 받을 수 있게 먼저 열어 둔다
 
@@ -1094,7 +1112,7 @@ function initMap(lat, lng, zoom) {
   //   복원이 실패하거나 오래 걸리면 수신 대기가 안 걸려 런처 데이터를 못 받고 빈 지도가 된다.
   //   → 수신은 바로 걸고, 받은 데이터는 복원이 끝난 뒤에 그린다(_restoreReady 대기).
   const _restore = loadKMZfromDB()
-    .then(async file => { if (file) await loadKMZ(file, true); })
+    .then(async file => { if (file) { _quietLoad = true; try { await loadKMZ(file, true); } finally { _quietLoad = false; } } })
     .catch(e => console.warn('이전 데이터 복원 실패 — 빈 지도로 시작', e));
   window._restoreReady = Promise.race([_restore, new Promise(r => setTimeout(r, 15000))]);
   window._restoreReady.then(() => { _restoreDone = true; });
@@ -2053,17 +2071,51 @@ function copyAndMark() {
 /* ════════════════════════════════
    내 위치 토글
 ════════════════════════════════ */
+/* 기기 나침반 — '화면 위쪽'이 가리키는 방위(도, 북=0 시계방향). (2026-10-21)
+   예전엔 360-alpha 만 썼다 → ① 폰을 세워 들면(beta≈90) alpha 가 크게 튀고
+   ② 가로 화면이면 90° 틀리고 ③ 값이 떨려서 화살표가 흔들렸다.
+   → 화면 위쪽 축의 수평 성분 + (세운 만큼) 뒷면(카메라) 축의 수평 성분을 합쳐
+     눕히든 세우든 앞쪽을 가리키게 하고, 화면 회전각을 반영, 원형 평균으로 떨림을 줄인다. */
+let _orientOn = false, _hdX = null, _hdY = null, _shownHeading = null;
+function _screenAngle() {
+  try { if (screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle; } catch (e) {}
+  return typeof window.orientation === 'number' ? window.orientation : 0;
+}
+function _headingFromEuler(a, b, g) {   // W3C ZXY 오일러각(alpha,beta,gamma) → 방위
+  const r = Math.PI / 180;
+  const sa = Math.sin(a * r), ca = Math.cos(a * r), sb = Math.sin(b * r), cb = Math.cos(b * r),
+        sg = Math.sin(g * r), cg = Math.cos(g * r), s = _screenAngle() * r, ss = Math.sin(s), cs = Math.cos(s);
+  // 기기 X(오른쪽)·Y(위쪽)·-Z(뒷면) 축의 동(E)·북(N)·위(U) 성분
+  const xE = ca * cg - sa * sb * sg,  xN = sa * cg + ca * sb * sg,  xU = -cb * sg;
+  const yE = -sa * cb,                yN = ca * cb,                 yU = sb;
+  const zE = -ca * sg - sa * sb * cg, zN = -sa * sg + ca * sb * cg;
+  // 화면 위쪽 = 화면 회전각만큼 돌린 기기 축. 세운 정도(w)만큼 뒷면 방향을 더한다
+  const uE = ss * xE + cs * yE, uN = ss * xN + cs * yN, w = Math.abs(ss * xU + cs * yU);
+  const E = uE + w * zE, N = uN + w * zN;
+  if (Math.hypot(E, N) < 1e-6) return null;
+  return (Math.atan2(E, N) * 180 / Math.PI + 360) % 360;
+}
+function _feedHeading(h) {
+  if (h == null || !isFinite(h)) return;
+  const x = Math.sin(h * Math.PI / 180), y = Math.cos(h * Math.PI / 180);
+  if (_hdX === null) { _hdX = x; _hdY = y; }
+  else { _hdX += (x - _hdX) * 0.2; _hdY += (y - _hdY) * 0.2; }   // 원형 평균(0°/360° 경계에서도 안 튐)
+  deviceHeading = (Math.atan2(_hdX, _hdY) * 180 / Math.PI + 360) % 360;
+}
+function _angDiff(a, b) { if (a == null || b == null) return 360; const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; }
 /* 기기 나침반 리스너 설정 */
 function setupDeviceOrientation() {
   const addListeners = () => {
+    if (_orientOn) return;   // 위치를 다시 시작할 때마다 리스너가 겹쳐 붙지 않게
+    _orientOn = true;
     // Android: deviceorientationabsolute (절대 방위각)
     window.addEventListener('deviceorientationabsolute', e => {
-      if (e.alpha != null) deviceHeading = (360 - e.alpha) % 360;
+      if (e.alpha != null) _feedHeading(_headingFromEuler(e.alpha, e.beta || 0, e.gamma || 0));
     }, true);
-    // iOS: webkitCompassHeading, Android 폴백: deviceorientation
+    // iOS: webkitCompassHeading, Android 폴백: deviceorientation(absolute 일 때만)
     window.addEventListener('deviceorientation', e => {
-      if (e.webkitCompassHeading != null) deviceHeading = e.webkitCompassHeading;
-      else if (e.absolute && e.alpha != null) deviceHeading = (360 - e.alpha) % 360;
+      if (e.webkitCompassHeading != null) _feedHeading((e.webkitCompassHeading + _screenAngle() + 360) % 360);
+      else if (e.absolute && e.alpha != null) _feedHeading(_headingFromEuler(e.alpha, e.beta || 0, e.gamma || 0));
     }, true);
   };
   if (typeof DeviceOrientationEvent !== 'undefined' &&
@@ -2136,10 +2188,11 @@ function startLocationWatchIfNeeded() {
   if (watchId !== null) return;
   setupDeviceOrientation();
   if (!headingInterval) headingInterval = setInterval(() => {
-    if (locationFeat && deviceHeading !== null) {
+    if (locationFeat && deviceHeading !== null && _angDiff(deviceHeading, _shownHeading) >= 2) {
+      _shownHeading = deviceHeading;
       locationFeat.setStyle(makeLocationStyle(deviceHeading));
     }
-  }, 500);
+  }, 250);
   watchId = navigator.geolocation.watchPosition(pos => {
     const c = toMerc(pos.coords.longitude, pos.coords.latitude);
     // 나침반(바라보는 방향) 우선. GPS heading은 정지 중 무작위로 튀므로 나침반 없을 때만 폴백.
@@ -2373,6 +2426,9 @@ async function loadImage(file, getNG, setNG) {
 async function loadKMZ(file, silent = false) {
   if (silent) showLoading('이전 데이터 복원 중...');
   else showLoading('KMZ 불러오는 중...');
+  // 앱을 다시 열 때(자동 복원) 전에 보던 화면이 있으면 데이터 범위로 옮기지 않는다
+  // (예전엔 데이터 범위로 갔다가 보던 화면으로 되돌아와 지도를 두 번 받았다)
+  const _keepView = silent && !!window._bootLastPos;
 
   if (silent) {
     closeAllPopups();
@@ -2519,7 +2575,7 @@ async function loadKMZ(file, silent = false) {
         } else addMarker(c, name);
       }
     }
-    fitPts(pts);
+    if (!_keepView) fitPts(pts);
     if (pts.length > 0 || markers.length > 0 || polylines.length > 0)
       document.getElementById('saveBtn').disabled = false;
     hideLoading();
@@ -3628,6 +3684,8 @@ function changeVWorldMapType(value) {
 // 마커/선(벡터)·지적도(/req/wms)는 건드리지 않음. 실패해도 지도에 영향 없도록 방어적 처리.
 function prunePhotoBaseLayers() {
   if (!vmap) return;
+  const _sel = document.getElementById('mapTypeSelect');
+  if (_sel && _sel.value !== 'PHOTO') return;   // 항공+지도 등에선 하이브리드(글자) 층을 끄면 안 됨
   try {
     vmap.getLayers().getArray().forEach(layer => {
       if (!(layer instanceof ol.layer.Tile)) return;
