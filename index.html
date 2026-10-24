@@ -1604,6 +1604,7 @@ function applyPickedStyle(color, width) {
   if (_styleTarget) {
     const lyr = _styleTarget;
     restyleLyrV(lyr, color || lyr._color || '#FF0000', width || lyr._width || 3);
+    _recolorOwnedV(lyr);
     _spMarkSelected(lyr._color, lyr._width);
     autoSaveToDB();
   } else {
@@ -1752,6 +1753,8 @@ document.getElementById('polyStyleBtn').onclick = () => {
 };
 document.getElementById('polyDeleteBtn').onclick = () => {
   if (!polyTarget) return;
+  const own = _ownedTextsV(polyTarget);   // 딸린 문자(지적도의 지번)도 같이
+  if (own.length) { const s = new Set(own); own.forEach(x => { try { textLabelLyr.getSource().removeFeature(x.feat); } catch (e) {} }); textLabelsV = textLabelsV.filter(x => !s.has(x)); }
   removeLyr(polyTarget); polylines = polylines.filter(p => p !== polyTarget);
   if (markers.length === 0 && polylines.length === 0) document.getElementById('saveBtn').disabled = true;
   autoSaveToDB(); hidePolyMenu();
@@ -1913,7 +1916,7 @@ function _lineKmlStyleDefsV(styles) {
 // 텍스트 라벨 → KML Placemark (kind=text — 자동저장/내보내기 복원용)
 function _textKmlPlacemarkV(t) {
   const ll = fromMerc(t.coord);
-  return `\n<Placemark><name>${esc(t.name)}</name><ExtendedData><Data name="kind"><value>text</value></Data><Data name="rot"><value>${t.rot}</value></Data><Data name="color"><value>${t.color}</value></Data><Data name="h"><value>${t.h || 0}</value></Data><Data name="ax"><value>${t.ax || 0}</value></Data><Data name="ay"><value>${t.ay || 0}</value></Data></ExtendedData><Point><coordinates>${ll[0]},${ll[1]},0</coordinates></Point></Placemark>`;
+  return `\n<Placemark><name>${esc(t.name)}</name><ExtendedData><Data name="kind"><value>text</value></Data><Data name="rot"><value>${t.rot}</value></Data><Data name="color"><value>${t.color}</value></Data><Data name="h"><value>${t.h || 0}</value></Data><Data name="ax"><value>${t.ax || 0}</value></Data><Data name="ay"><value>${t.ay || 0}</value></Data>${t.owner ? `<Data name="owner"><value>${esc(t.owner)}</value></Data>` : ''}</ExtendedData><Point><coordinates>${ll[0]},${ll[1]},0</coordinates></Point></Placemark>`;
 }
 
 /* ════════════════════════════════
@@ -2492,15 +2495,17 @@ async function loadKMZ(file, silent = false) {
           const raw = pt.getElementsByTagName('coordinates')[0]?.textContent || '';
           const p = raw.trim().split(','); const lo = parseFloat(p[0]), la = parseFloat(p[1]);
           if (!isNaN(lo) && !isNaN(la) && Math.abs(lo) <= 180 && Math.abs(la) <= 90) {
-            let _rot = 0, _col = '', _h = 0, _ax = 0, _ay = 0;
+            let _rot = 0, _col = '', _h = 0, _ax = 0, _ay = 0, _own = '';
             for (const d of Array.from(pm.getElementsByTagName('Data'))) {
               const nm = d.getAttribute('name'); const v = d.getElementsByTagName('value')[0]?.textContent || '';
               if (nm === 'rot') _rot = parseFloat(v) || 0; else if (nm === 'color') _col = v.trim();
               else if (nm === 'h') _h = parseFloat(v) || 0;
               else if (nm === 'ax') _ax = parseFloat(v) || 0; else if (nm === 'ay') _ay = parseFloat(v) || 0;
+              else if (nm === 'owner') _own = v.trim();
             }
             const c = toMerc(lo, la); pts.push(c);
             addTextLabelV(c, name, _rot, _col, _h, _ax, _ay);
+            if (_own) textLabelsV[textLabelsV.length - 1].owner = _own;   // 딸린 선 항목 이름(지적도의 지번) — 선을 지우면 같이 지움
           }
           continue;
         }
@@ -3141,8 +3146,32 @@ function _removeErasedV(it) {
     polylines = polylines.filter(l => l !== it.obj);
   } else {
     try { textLabelLyr.getSource().removeFeature(it.obj.feat); } catch (e) {}
-    textLabelsV = textLabelsV.filter(t => t !== it.obj);
+    const i = textLabelsV.indexOf(it.obj); if (i >= 0) textLabelsV.splice(i, 1);
   }
+}
+// 선 항목에 딸린 문자 — owner 가 그 선 이름(지적도 불러오기의 지번, 2026-10-24).
+// owner 가 없던 예전 자동저장의 「○○리 지적도」는 선 범위 안의 노랑 2m 문자를 딸린 것으로 본다.
+function _ownedTextsV(lyr) {
+  const nm = lyr && lyr._name; if (!nm) return [];
+  let bb = null;
+  if (/ 지적도$/.test(nm)) {
+    bb = [Infinity, Infinity, -Infinity, -Infinity];
+    coordParts(lyr).forEach(cs => cs.forEach(c => { if (c[0] < bb[0]) bb[0] = c[0]; if (c[1] < bb[1]) bb[1] = c[1]; if (c[0] > bb[2]) bb[2] = c[0]; if (c[1] > bb[3]) bb[3] = c[1]; }));
+  }
+  return textLabelsV.filter(t => t.owner ? t.owner === nm
+    : !!bb && t.h === 2 && /^#ffff00$/i.test(t.color) && t.coord[0] >= bb[0] && t.coord[0] <= bb[2] && t.coord[1] >= bb[1] && t.coord[1] <= bb[3]);
+}
+// 선 색을 바꾸면 딸린 문자(지적도 지번)도 같은 색 — 글자 스타일이 색을 품고 있어 피처를 새로 만든다. 예전 저장본 지번은 이때 owner 를 붙인다
+function _recolorOwnedV(lyr) {
+  const col = lyr && lyr._color;
+  if (!/^#[0-9a-fA-F]{6}$/.test(col || '')) return;
+  _ownedTextsV(lyr).forEach(t => {
+    if (t.color === col) return;
+    addTextLabelV(t.coord, t.name, t.rot, col, t.h, t.ax, t.ay);
+    const nu = textLabelsV.pop();
+    try { textLabelLyr.getSource().removeFeature(t.feat); } catch (e) {}
+    t.feat = nu.feat; t.color = nu.color; t.owner = t.owner || lyr._name;
+  });
 }
 function _restoreErasedV(it) {
   if (it.kind === 'marker') { addLyr(it.obj.lyr); markers.push(it.obj); }
@@ -3180,11 +3209,15 @@ function eraseAtCoord(coord) {
     if (Math.hypot(c[0] - coord[0], c[1] - coord[1]) <= tol) batch.push({ kind: 'marker', obj: m });
   }
   for (const t of textLabelsV) {
+    if (window.isCadText && isCadText(t)) continue;   // 지적도 지번은 따로 안 지움 — 지적도 선을 지우면 같이
     if (Math.hypot(t.coord[0] - coord[0], t.coord[1] - coord[1]) <= tol) batch.push({ kind: 'text', obj: t });
   }
   for (const lyr of polylines) {
     if (_polyWithinV(lyr, coord, tol)) batch.push({ kind: 'line', obj: lyr });
   }
+  // 지운 선에 딸린 문자(지적도의 지번)도 같이 — 되돌리기도 같이 (2026-10-24)
+  const _inB = new Set(batch.map(it => it.obj));
+  batch.filter(it => it.kind === 'line').forEach(it => _ownedTextsV(it.obj).forEach(t => { if (!_inB.has(t)) { _inB.add(t); batch.push({ kind: 'text', obj: t }); } }));
 
   if (!batch.length) { showToastMsg('지울 객체가 없습니다'); return; }
   closeAllPopups();
