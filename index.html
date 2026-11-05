@@ -227,8 +227,8 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 /* ── 전체화면 사진뷰어 ── */
 #photoViewer{display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:8000;align-items:center;justify-content:center;flex-direction:column;padding:16px;}
 #photoViewer.show{display:flex;}
-#photoViewer img{max-width:100%;max-height:85vh;border-radius:8px;object-fit:contain;}
-#photoViewer .pv-name{color:rgba(255,255,255,.8);font-size:13px;margin-top:10px;}
+#photoViewer img{max-width:100%;max-height:85vh;min-height:0;border-radius:8px;object-fit:contain;}
+#photoViewer .pv-name{color:rgba(255,255,255,.8);font-size:13px;margin-top:10px;text-align:center;flex-shrink:0;}
 
 /* ── 로딩 ── */
 #loading{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;flex-direction:column;gap:12px;align-items:center;justify-content:center;color:white;font-size:15px;}
@@ -383,6 +383,7 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
   <img id="viewerImg" src="" alt="">
   <div class="pv-name" id="viewerName"></div>
   <div class="pv-name" id="viewerTaken" style="margin-top:4px;"></div>
+  <div class="pv-name" id="viewerAddr" style="margin-top:4px;"></div>
 </div>
 
 <!-- 로딩 -->
@@ -484,12 +485,33 @@ function showToastMsg(msg) {
   _toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
 }
 
-function openViewer(src, name) {
+// 사진 크게 보기의 주소 — 마커 지금 자리의 지번 주소 (찾은 곳은 기억해 다시 안 묻는다, 못 찾거나 오프라인이면 빈칸)
+const _viewerAddrs = new Map();
+function showViewerAddr(ll) {
+  const el = document.getElementById('viewerAddr');
+  el.textContent = '';
+  el._key = '';
+  if (!ll || ll.lat == null || ll.lng == null) return;
+  const key = ll.lat.toFixed(5) + ',' + ll.lng.toFixed(5);
+  el._key = key;
+  if (_viewerAddrs.has(key)) { el.textContent = _viewerAddrs.get(key); return; }
+  lookupViewerAddr(ll.lat, ll.lng).then(t => {
+    if (t) _viewerAddrs.set(key, t);
+    if (el._key === key) el.textContent = t;   // 그새 다른 사진을 열었으면 안 넣음
+  });
+}
+function lookupViewerAddr(lat, lng) {
+  return jsonp(`https://api.vworld.kr/req/address?service=address&request=getAddress&version=2.0&crs=epsg:4326&point=${lng},${lat}&type=parcel&format=json&key=${VWORLD_KEY}`)
+    .then(d => (d?.response?.status === 'OK' && d.response.result?.[0]?.text) || '')
+    .catch(() => '');
+}
+function openViewer(src, name, ll) {
   document.getElementById('viewerImg').src = src;
   document.getElementById('viewerName').textContent = name;
   // 파일 이름 아래 촬영일시 (EXIF 2026:01:02 03:04:05 → 2026-01-02 03:04, 없으면 빈칸)
-  const taken = readPhotoMeta(src).taken;
+  const meta = readPhotoMeta(src), taken = meta.taken;
   document.getElementById('viewerTaken').textContent = taken ? '촬영일시 ' + String(taken).replace(/^(\d{4}):(\d\d):(\d\d)/, '$1-$2-$3').slice(0, 16) : '';
+  showViewerAddr(ll || meta);
   document.getElementById('photoViewer').classList.add('show');
 }
 // 사진 자체를 눌러도 닫힌다 (예전엔 사진 바깥/아래만 닫혀서 헷갈렸음)
@@ -2055,7 +2077,7 @@ function makePhotoEl(m) {
     <span style="display:flex;gap:2px;flex-shrink:0;"><button class="pinfo" title="사진 정보 보기·수정">📝</button>
     <button onclick="closePop(this)">✖</button></span></div>
     <img class="pimg" src="${m.imgSrc}" draggable="false">`;
-  d.querySelector('.pimg').onclick = () => openViewer(m.imgSrc, m.name);
+  d.querySelector('.pimg').onclick = () => { const c = fromMerc(m.feat.getGeometry().getCoordinates()); openViewer(m.imgSrc, m.name, { lat: c[1], lng: c[0] }); };
   d.querySelector('.pinfo').onclick = () => { closeAllPopups(); if (window.gdPhotoInfo) window.gdPhotoInfo(m); };
   d.addEventListener('mousedown', e => e.stopPropagation());
   return d;
