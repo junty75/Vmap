@@ -382,6 +382,7 @@ html,body{height:100%;margin:0;overflow:hidden;font-family:'맑은 고딕',sans-
 <div id="photoViewer">
   <img id="viewerImg" src="" alt="">
   <div class="pv-name" id="viewerName"></div>
+  <div class="pv-name" id="viewerTaken" style="margin-top:4px;"></div>
 </div>
 
 <!-- 로딩 -->
@@ -486,6 +487,9 @@ function showToastMsg(msg) {
 function openViewer(src, name) {
   document.getElementById('viewerImg').src = src;
   document.getElementById('viewerName').textContent = name;
+  // 파일 이름 아래 촬영일시 (EXIF 2026:01:02 03:04:05 → 2026-01-02 03:04, 없으면 빈칸)
+  const taken = readPhotoMeta(src).taken;
+  document.getElementById('viewerTaken').textContent = taken ? '촬영일시 ' + String(taken).replace(/^(\d{4}):(\d\d):(\d\d)/, '$1-$2-$3').slice(0, 16) : '';
   document.getElementById('photoViewer').classList.add('show');
 }
 // 사진 자체를 눌러도 닫힌다 (예전엔 사진 바깥/아래만 닫혀서 헷갈렸음)
@@ -2423,7 +2427,8 @@ async function loadImage(file, getNG, setNG) {
             delete ex0['0th'][piexif.ImageIFD.ImageDescription];
             ex0['0th'][piexif.ImageIFD.Orientation] = 1;   // 워커 압축본은 픽셀에 회전 반영됨
           }
-          if (ex0['Exif']) delete ex0['Exif'][piexif.ExifIFD.UserComment];
+          if (ex0['Exif']) { delete ex0['Exif'][piexif.ExifIFD.UserComment]; delete ex0['Exif'][piexif.ExifIFD.MakerNote]; }
+          delete ex0['1st']; delete ex0.thumbnail;              // 썸네일·MakerNote 는 수십 KB — 200KB 를 넘기므로 뺀다
           dispSrc = _exifSafeCarry(ex0, compressed);
         } catch(e) {
           // piexif 로는 원본 EXIF 를 못 열었지만 exifr 이 위치를 찾은 경우 —
@@ -3320,7 +3325,7 @@ document.getElementById('clearBtn').onclick = () => {
 // 사진 압축을 Web Worker 에서 수행 — 페이지 캔버스로 압축하면 파일 선택창을
 // 다녀온 직후 지도 타일이 하얗게 죽는 기기가 있음 (압축 자체가 백화 원인).
 // 워커는 페이지 렌더링/GPU 와 분리되어 지도에 영향을 주지 않는다.
-const _imgWorkerCode = "self.onmessage=async e=>{const{id,file,max,target}=e.data;try{const bmp=await createImageBitmap(file,{imageOrientation:'from-image'});let w=bmp.width,h=bmp.height;if(w>max||h>max){if(w>h){h=Math.round(h*max/w);w=max;}else{w=Math.round(w*max/h);h=max;}}const cv=new OffscreenCanvas(w,h);cv.getContext('2d').drawImage(bmp,0,0,w,h);bmp.close();let q=0.85,blob=await cv.convertToBlob({type:'image/jpeg',quality:q});while(blob.size>target&&q>0.1){q=Math.round((q-0.05)*100)/100;blob=await cv.convertToBlob({type:'image/jpeg',quality:q});}const buf=await blob.arrayBuffer();self.postMessage({id,ok:true,buf},[buf]);}catch(err){self.postMessage({id,ok:false});}};";
+const _imgWorkerCode = "self.onmessage=async e=>{const{id,file,max,target}=e.data;try{const bmp=await createImageBitmap(file,{imageOrientation:'from-image'});let s=Math.min(1,max/Math.max(bmp.width,bmp.height)),blob=null;for(let k=0;k<6&&!(blob&&blob.size<=target);k++){const cv=new OffscreenCanvas(Math.max(1,Math.round(bmp.width*s)),Math.max(1,Math.round(bmp.height*s)));cv.getContext('2d').drawImage(bmp,0,0,cv.width,cv.height);for(let q=0.85;q>=0.4;q=Math.round((q-0.1)*100)/100){blob=await cv.convertToBlob({type:'image/jpeg',quality:q});if(blob.size<=target)break;}s*=0.75;}bmp.close();const buf=await blob.arrayBuffer();self.postMessage({id,ok:true,buf},[buf]);}catch(err){self.postMessage({id,ok:false});}};";
 let _imgWorker = null;
 const _imgJobs = new Map();
 let _imgJobId = 0;
@@ -3349,7 +3354,7 @@ function compressFileInWorker(file) {
       fr.onerror = () => resolve(null);
       fr.readAsDataURL(new Blob([d.buf], { type: 'image/jpeg' }));
     });
-    try { w.postMessage({ id, file, max: 1920, target: COMPRESS_TARGET }); }
+    try { w.postMessage({ id, file, max: 1920, target: COMPRESS_TARGET - EXIF_MARGIN }); }
     catch(e) { clearTimeout(to); _imgJobs.delete(id); resolve(null); }
   });
 }
@@ -3358,7 +3363,10 @@ function compressFileInWorker(file) {
    이미지 압축 / GPS 다운로드
 ════════════════════════════════ */
 const _compressCache = new Map();   // 원본 src → 압축 결과 (같은 사진 매번 재압축 방지)
-const COMPRESS_TARGET = 300 * 1024;
+// 지도에 넣는 사진 200KB 이하 (2026-11-05, 사용자 요청 — 예전 300KB). 화질을 0.45 까지 낮춰도 크면 크기를 더 줄인다
+const COMPRESS_TARGET = 200 * 1024;
+const EXIF_MARGIN = 10 * 1024;      // 압축 뒤 다시 넣는 EXIF(위치·날짜) 몫
+const COMPRESS_SKIP = 360 * 1024;   // 이미 들어 있는 예전 300KB 표시본은 다시 압축 안 함 — 자동저장 때 지도가 멈춘다
 // JPEG 인코딩을 toBlob(비동기)으로 — toDataURL 은 메인 스레드를 수백 ms 씩 막아
 // 사진 불러올 때 지도가 하얗게 멈추는 원인이었음. 실패 시 toDataURL 폴백.
 function _canvasJpeg(cv, q) {
@@ -3377,7 +3385,7 @@ function compressImage(src) {
   if (_compressCache.has(src)) return Promise.resolve(_compressCache.get(src));
   // 이미 목표 크기 이하인 JPEG(불러올 때 만든 표시본 등)은 재압축 생략 — 자동저장 때마다
   // 전체 사진을 다시 canvas 인코딩하느라 지도가 멈추던 문제 방지
-  if (/^data:image\/jpe?g/i.test(src) && src.length * 0.75 <= COMPRESS_TARGET * 1.2) {
+  if (/^data:image\/jpe?g/i.test(src) && src.length * 0.75 <= COMPRESS_SKIP) {
     return Promise.resolve(src);
   }
   return new Promise(res => {
