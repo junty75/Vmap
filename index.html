@@ -502,7 +502,7 @@ function showViewerAddr(ll) {
 }
 function lookupViewerAddr(lat, lng) {
   return jsonp(`https://api.vworld.kr/req/address?service=address&request=getAddress&version=2.0&crs=epsg:4326&point=${lng},${lat}&type=parcel&format=json&key=${VWORLD_KEY}`)
-    .then(d => (d?.response?.status === 'OK' && d.response.result?.[0]?.text) || '')
+    .then(d => ((d?.response?.status === 'OK' && d.response.result?.[0]?.text) || '').replace(/(^|\s)산 (\d)/, '$1산$2'))   // '산 67-9' → '산67-9'
     .catch(() => '');
 }
 function openViewer(src, name, ll) {
@@ -651,7 +651,7 @@ function jsonp(url) {
 function parseShortAddr(addr) {
   if (!addr) return '';
   const skipRe = /(도|시|군|구)$/;
-  const parts = addr.trim().split(/\s+/);
+  const parts = addr.trim().replace(/(^|\s)산 (\d)/, '$1산$2').split(/\s+/);   // 산번지 '산 67-9' → '산67-9' (카카오 판과 같게)
   const idx = parts.findIndex(p => !skipRe.test(p));
   return idx === -1 ? addr : parts.slice(idx).join(' ');
 }
