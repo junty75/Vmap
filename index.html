@@ -852,6 +852,7 @@ function initMap(lat, lng, zoom) {
     pixelRatio         : 1   // 고DPI 기기에서 2~3x 타일 요청 방지 → 로딩 속도 개선
   };
   vmap = new vw.ol3.Map('vmap', vw.ol3.MapOptions);
+  _vwOsmSync();   // 첫 화면부터 OSM 예비 층은 받지 않게 (그리기 전에 끔)
 
   // ── 최대 확대 한 단계 늘리기 (브이월드 기본 19 → 20) ──────────────────────────
   // 카카오(minLevel:0)의 최대 확대가 z20 상당이라 브이월드가 한 단계 낮았다.
@@ -3778,8 +3779,35 @@ document.getElementById('compassBtn').onclick = () => setNorthLock(!rotationLock
 function changeVWorldMapType(value) {
   if (!vmap) return;
   try { vmap.setBasemapType(vw.ol3.BasemapType[value]); } catch(e) { console.warn('지도 유형 변경 오류', e); }
+  _vwOsmSync();   // 새로 깔린 OSM 층도 바로 끔
   if (value === 'PHOTO') prunePhotoBaseLayers();
 }
+
+// 브이월드 SDK 는 고른 지도(항공·항공+지도·일반) 밑에 OpenStreetMap 층을 늘 깔아 화면마다 OSM 타일을 같은 수만큼 더 받았다
+//   (2026-11-19, PC 지도 Vmap.html 에서 실측 — 처음 화면 OSM 25 + 위성 25 + 라벨 25장) → 항공영상이 늦게 뜸.
+//   OSM 층은 꺼 두고, 브이월드 타일이 한 장도 안 오고 실패만 8장 쌓이면(키·도메인 막힘 등) 예비로 다시 켠다. PC Vmap 과 같은 규칙.
+let _vwOk = 0, _vwErr = 0, _vwOsmBackup = false;
+const _vwHooked = new WeakSet();
+function _vwIsOsm(s) { let u = null; try { u = s && s.getUrls && s.getUrls(); } catch(e) {} return !!(u && u.some(x => /openstreetmap/.test(x))); }
+function _vwOsmSync() {
+  if (!vmap) return;
+  try {
+    vmap.getLayers().getArray().forEach(l => {
+      if (!(l instanceof ol.layer.Tile)) return;
+      const s = l.getSource && l.getSource(); if (!s) return;
+      if (_vwIsOsm(s)) { if (l.getVisible() !== _vwOsmBackup) l.setVisible(_vwOsmBackup); return; }
+      let u = ''; try { u = (s.getUrls && (s.getUrls() || []).join(' ')) || ''; } catch(e) {}
+      if (/\/req\/wms|ngii/.test(u) || _vwHooked.has(s)) return;   // 지적도·연도별 항공사진은 빼고 배경 소스만 성공·실패를 센다
+      _vwHooked.add(s);
+      s.on('tileloadend', () => { _vwOk++; });
+      s.on('tileloaderror', () => {
+        _vwErr++;
+        if (!_vwOsmBackup && _vwOk === 0 && _vwErr >= 8) { _vwOsmBackup = true; _vwOsmSync(); console.warn('브이월드 배경 타일이 안 와서 OSM 예비 층을 켭니다'); }
+      });
+    });
+  } catch(e) { console.warn('OSM 층 정리 건너뜀', e); }
+}
+setInterval(_vwOsmSync, 1000);   // SDK 가 나중에 다시 까는 층도 끔
 
 // 항공사진 모드일 때 함께 깔리는 일반지도/하이브리드 베이스 타일을 끈다 (불필요한 타일 요청 제거 → 가벼움).
 // VWorld 베이스 타일 URL의 종류명만 보고 판단. 위성(Satellite)만 남기고 Base/Hybrid/gray류는 숨김.
